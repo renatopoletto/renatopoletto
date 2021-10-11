@@ -1,0 +1,4 @@
+- 👋 Hi, I’m @renatopoletto
+- 👀 I’m interested in data analisys
+- 🌱 I’m currently learning coding in python
+- 💞️ I’m looking to collaborate on (still need to learn something)
