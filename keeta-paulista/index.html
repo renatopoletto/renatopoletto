@@ -877,7 +877,8 @@ function drawRider() {
   ctx.save(); ctx.translate(_x, _y); ctx.scale(s, -s);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(6, -4, 46, 16, 0, 0, 7); ctx.fill();
   ctx.rotate(-steerS * 0.13);
-  const Y = '#ffd100', YD = '#d9ae00', K = '#17181b';
+  // Cores: amarelo da marca no baú e no capacete; jaqueta verde ("Jakeeta", segundo foto de imprensa não verificada)
+  const Y = '#ffd100', YD = '#d9ae00', K = '#17181b', G = '#86c81e', GD = '#5f9412', PT = '#2b2d33';
   const R = (x, y, w, h, r, c) => { ctx.fillStyle = c; rr(x, y, w, h, r); ctx.fill(); };
   const L = (c, lw, pts) => { ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]); ctx.stroke(); };
   const T = (txt, y, font, col, mw) => { ctx.save(); ctx.scale(1, -1); ctx.fillStyle = col; ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, 0, -y, mw); ctx.restore(); };
@@ -893,16 +894,16 @@ function drawRider() {
   R(-10, 62, 20, 9, 3, '#e3262e');
   R(-11, 38, 22, 13, 2, '#ececec');
   T('SP 2026', 44.5, '700 6px system-ui,sans-serif', '#222', 20);
-  // pernas (calça amarela) e botas
-  L(Y, 15, [-13, 86, -29, 60, -27, 30]); L(Y, 15, [13, 86, 29, 60, 27, 30]);
-  L(YD, 3, [-36, 58, -34, 34]); L(YD, 3, [36, 58, 34, 34]);
+  // pernas (calça escura) e botas
+  L(PT, 15, [-13, 86, -29, 60, -27, 30]); L(PT, 15, [13, 86, 29, 60, 27, 30]);
   R(-35, 16, 16, 16, 5, K); R(19, 16, 16, 16, 5, K);
   // braços e luvas
-  L(Y, 13, [-24, 142, -37, 112]); L(Y, 13, [24, 142, 37, 112]);
+  L(G, 13, [-24, 142, -37, 112]); L(G, 13, [24, 142, 37, 112]);
+  L(Y, 4, [-32, 124, -35, 117]); L(Y, 4, [32, 124, 35, 117]);
   ctx.fillStyle = K; ctx.beginPath(); ctx.arc(-38, 108, 7.5, 0, 7); ctx.arc(38, 108, 7.5, 0, 7); ctx.fill();
-  // tronco (jaqueta amarela)
-  R(-27, 84, 54, 70, 16, Y);
-  R(-27, 84, 54, 9, 4, K);
+  // tronco (jaqueta verde)
+  R(-27, 84, 54, 70, 16, G);
+  R(-27, 84, 54, 9, 4, GD);
   // capacete amarelo
   R(-7, 150, 14, 8, 3, K);
   ctx.fillStyle = Y; ctx.beginPath(); ctx.arc(0, 166, 16.5, 0, 7); ctx.fill();
