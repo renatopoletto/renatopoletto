@@ -877,8 +877,9 @@ function drawRider() {
   ctx.save(); ctx.translate(_x, _y); ctx.scale(s, -s);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(6, -4, 46, 16, 0, 0, 7); ctx.fill();
   ctx.rotate(-steerS * 0.13);
-  // Cores: amarelo da marca no baú e no capacete; jaqueta verde ("Jakeeta", segundo foto de imprensa não verificada)
-  const Y = '#ffd100', YD = '#d9ae00', K = '#17181b', G = '#86c81e', GD = '#5f9412', PT = '#2b2d33';
+  // Cores tiradas da foto da bag oficial (valores aproximados): verde no corpo, amarelo no painel, letras pretas.
+  // A jaqueta usa o mesmo verde; capacete amarelo e calça escura não têm fonte.
+  const Y = '#f5d90a', YD = '#d4b800', K = '#17181b', G = '#10a880', GD = '#0a7f60', PT = '#2b2d33';
   const R = (x, y, w, h, r, c) => { ctx.fillStyle = c; rr(x, y, w, h, r); ctx.fill(); };
   const L = (c, lw, pts) => { ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]); ctx.stroke(); };
   const T = (txt, y, font, col, mw) => { ctx.save(); ctx.scale(1, -1); ctx.fillStyle = col; ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, 0, -y, mw); ctx.restore(); };
@@ -909,12 +910,16 @@ function drawRider() {
   ctx.fillStyle = Y; ctx.beginPath(); ctx.arc(0, 166, 16.5, 0, 7); ctx.fill();
   ctx.fillStyle = K; ctx.fillRect(-2.5, 151, 5, 31);
   ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.beginPath(); ctx.ellipse(-7, 173, 4, 6, 0.5, 0, 7); ctx.fill();
-  // bag de entrega
-  R(-26, 88, 52, 56, 6, Y);
-  ctx.strokeStyle = YD; ctx.lineWidth = 1.6; rr(-26, 88, 52, 56, 6); ctx.stroke();
-  R(-26, 132, 52, 12, 5, YD);
-  R(-4, 135, 8, 5, 1.5, K);
-  T('Keeta', 110, '900 17px system-ui,sans-serif', '#111', 46);
+  // bag de entrega: corpo verde, painel amarelo de base curva, faixa refletiva e "keeta" em preto
+  R(-26, 88, 52, 56, 6, G);
+  ctx.save(); rr(-26, 88, 52, 56, 6); ctx.clip();
+  ctx.fillStyle = Y; ctx.fillRect(-23, 109, 46, 27);
+  ctx.beginPath(); ctx.ellipse(0, 109, 23, 11, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#c9d2cf'; ctx.fillRect(-26, 138, 52, 3);
+  ctx.restore();
+  ctx.strokeStyle = GD; ctx.lineWidth = 1.6; rr(-26, 88, 52, 56, 6); ctx.stroke();
+  ctx.strokeStyle = K; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-23, 136.5); ctx.lineTo(23, 136.5); ctx.stroke();
+  T('keeta', 119, '900 17px system-ui,sans-serif', '#111', 40);
   ctx.restore();
 }
 
