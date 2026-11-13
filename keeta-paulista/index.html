@@ -55,6 +55,20 @@
   #tTip { display:block; font-size:9px; margin-top:1px; color:#7dffb0; white-space:nowrap; }
   #tTip.lost { color:#8a8f98; text-decoration:line-through; }
   #hc.stop #tDist { color:#ffd100; font-weight:800; }
+  #hc.late #tTime, #hc.late small { color:#ff3b30; }
+  #tTip.bad { color:#ff8a8d; text-decoration:none; }
+  .oclock { font:900 44px/1 "Courier New",ui-monospace,monospace; color:#ff3b30; text-shadow:0 0 10px rgba(255,59,48,.7); margin:10px 0 2px; font-variant-numeric:tabular-nums; }
+  .osub { font-size:12px !important; color:#ffd100 !important; margin:0 0 6px !important; }
+  #prep { position:fixed; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; padding:12px; }
+  #prep.on { display:flex; }
+  .pcard { pointer-events:auto; width:100%; max-width:330px; background:#17181c; color:#f3f3f3; border:3px solid #ffd100; box-shadow:6px 6px 0 #000; padding:12px 14px; }
+  .pcard b { display:block; font-size:15px; text-transform:uppercase; }
+  .pcard small { display:block; font-size:12px; color:#c9cbd1; margin:4px 0 6px; }
+  .pbar { height:10px; background:#2a2c33; border:2px solid #000; } .pbar i { display:block; height:100%; width:0; background:#ffd100; }
+  .pitem { display:block; width:100%; margin-top:7px; padding:9px 10px; text-align:left; border:2px solid #000; background:#ffd100; color:#111;
+    font-weight:800; font-size:13px; box-shadow:3px 3px 0 #000; touch-action:manipulation; }
+  .pitem.wait { background:#4a4c55; color:#9a9da6; }
+  .pitem.ok { background:#2fbf71; }
   #hr { flex:1 1 0; display:flex; flex-direction:column; align-items:flex-end; gap:5px; min-width:0; }
   #tMoney { background:rgba(10,12,16,.8); border:1px solid rgba(255,255,255,.3); border-radius:7px; padding:4px 8px;
     font-weight:800; font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -121,7 +135,8 @@
     color:#111; font-size:18px; font-weight:900; letter-spacing:.02em; touch-action:manipulation; }
   .btn:active { transform:scale(.98); filter:brightness(.92); }
   .best { font-size:12px; color:#8e919a; text-align:center; margin-top:12px; }
-  @media (max-height:460px) { .card { padding:14px 18px; } h1 { font-size:26px; } ul.how li { padding:4px 0; font-size:13px; } p { font-size:13px; margin:5px 0; } }
+  @media (max-height:460px) { .card { max-width:560px; } .card .btn { position:sticky; bottom:0; padding:12px; } .oclock { font-size:32px; margin:6px 0 0; } dl { gap:3px 12px; font-size:13px; margin:8px 0; } h2 { font-size:19px; margin:6px 0 2px; }
+    .card { padding:14px 18px; } h1 { font-size:26px; } ul.how li { padding:4px 0; font-size:13px; } p { font-size:13px; margin:5px 0; } }
 </style>
 </head>
 <body>
@@ -137,7 +152,7 @@
       <div class="hb grn"><i id="bRoute"></i><span id="tRoute">ROTA 0%</span></div>
     </div>
   </div>
-  <div id="hc"><small>TEMPO RESTANTE</small><b id="tTime">00:00</b><span id="tDist">DISTÂNCIA: 0,00 km</span><span id="tDest"></span><span id="tTip"></span></div>
+  <div id="hc"><small id="tLbl">ENTREGA EM ATÉ 28 MIN</small><b id="tTime">00:00</b><span id="tDist">DISTÂNCIA: 0,00 km</span><span id="tDest"></span><span id="tTip"></span></div>
   <div id="hr"><div id="tMoney">R$ 0,00</div><div class="rowb"><button id="full" aria-label="Tela cheia">⛶</button><button id="mute" aria-label="Som">🔊</button></div></div>
 </div>
 
@@ -145,6 +160,7 @@
 <div class="hint" id="hR">▶</div>
 <button id="brake">FREIO</button>
 <button id="wheel"><i id="wMeter"></i><span>EMPINA</span></button>
+<div id="prep"><div class="pcard"><b id="pTitle"></b><small id="pStat"></small><div class="pbar"><i id="pBar"></i></div><div id="pList"></div></div></div>
 <div id="toast"></div>
 <div id="flash"></div>
 
@@ -181,8 +197,10 @@ const DESTS = ['Rua Augusta, 1508','Alameda Santos, 1293','Rua Haddock Lobo, 595
   'Rua da Consolação, 2302','Al. Joaquim Eugênio de Lima, 680'];
 const RESTS = ['Pastel da Dona Cida','Temaki do Zé','Burger do Vão','Açaí Trianon','Marmitex Paulistana',
   'Esfiha Bela Vista','Pizza da Brigadeiro','Coxinha 24h'];
-const ITEMS = ['2x pastel de carne + caldo de cana','Combo temaki salmão','X-salada duplo + fritas','Açaí 700 ml com granola',
-  'Marmita de feijoada','10 esfihas abertas','Pizza meia calabresa, meia mussarela','Coxinha com catupiry + refri'];
+const ITEMS = [['2x pastel de carne','Pastel de queijo','Caldo de cana','Vinagrete'], ['Temaki de salmão','Temaki de atum','Shoyu e wasabi','Hashi'],
+  ['X-salada duplo','Batata frita','Refrigerante lata','Maionese da casa'], ['Açaí 700 ml','Granola extra','Leite em pó','Colher'],
+  ['Marmita de feijoada','Arroz','Couve refogada','Laranja'], ['10 esfihas de carne','Esfiha de queijo','Limão','Guardanapos'],
+  ['Pizza meia calabresa','Meia mussarela','Refrigerante 2 L','Orégano'], ['Coxinha com catupiry','Kibe','Refrigerante lata','Pimenta']];
 const SHOPS = ['PADARIA','DROGARIA','BANCO','LANCHONETE','MERCADO','FARMÁCIA','AÇAÍ','PASTELARIA','ÓTICA','PAPELARIA',
   'BARBEARIA','LOTÉRICA','RESTAURANTE','CAFÉ','SAPATARIA','HORTIFRUTI'];
 const SIGN_COLS = [['#f4efe2','#b3262b'],['#c9272b','#ffffff'],['#f1c21b','#1b2f6b'],['#1d6b45','#ffffff'],['#f4efe2','#1d4f9c'],['#e8762c','#ffffff']];
@@ -265,6 +283,13 @@ let order = null, pal = PAL[0];
 let nseg = 0, cw = null, curve = null, circuit = CIRCUITS[0], segSprites = null, blocks = [[], []];
 let gear = 1, shiftT = 0, skyOff = 0;
 let stops = [], stopIdx = 0, tipLimit = 0;      // clientes da fase, o próximo e o tempo-limite da caixinha
+const TS = 20;                                   // 1 segundo real = 20 segundos do relógio do jogo
+const LIMIT = 28 * 60 / TS;                      // 28 minutos do jogo = 84 s reais, igual em todas as fases
+const TIP_LIMIT = 8 * 60 / TS;                   // caixinha: entregar em até 20 min (sobrando 8)
+const CANCEL = 15 * 60 / TS;                     // mais de 15 min de atraso: pedido cancelado
+const fmtClock = t => { const g = Math.ceil(Math.abs(t) * TS - (t < 0 ? 1e-6 : 0)); return (t < 0 ? '+' : '') + String(Math.floor(g / 60)).padStart(2, '0') + ':' + String(g % 60).padStart(2, '0'); };
+const lateDisc = t => t >= 0 ? 0 : Math.min(0.6, 0.1 + 0.05 * Math.floor(-t * TS / 60));   // desconto dado ao cliente pelo atraso
+let prep = null;                                 // conferência do pedido na loja
 const ZONE_BACK = 1500, ZONE_FWD = 600, STOP_V = 560;   // zona de entrega (cm) e velocidade máxima para entregar (20 km/h)
 const nextStop = () => stops[Math.min(stopIdx, stops.length - 1)];
 let wheelie = 0, wHold = 0, wCool = 0, wOn = false, stunt = 0, stuntT = 0;   // empinada
@@ -284,11 +309,11 @@ try { const b = JSON.parse(localStorage.getItem('correPaulistaBest') || 'null');
 
 /* ================= geração da fase ================= */
 function makeOrder(lv) {
-  const dist = 1000;                                     // mesma distância em todas as fases: o prazo é que encolhe
-  const avg = Math.min(12.5 * Math.pow(1.07, lv - 1), 19); // velocidade média exigida (m/s)
-  const i = (lv - 1) % RESTS.length;
-  return { rest: RESTS[i], items: ITEMS[i], dest: DESTS[(lv * 3 + 1) % DESTS.length], dest2: DESTS[(lv * 3 + 4) % DESTS.length], dist,
-    time: Math.round(dist / avg), pay: 8 + lv * 1.5 };
+  // o prazo é sempre 28 min; o que aperta é a missão: rota mais longa, preparo mais lento, mais itens e mais clientes
+  const dist = Math.min(1000 + 60 * (lv - 1), 1400);
+  const i = (lv - 1) % RESTS.length, nCheck = Math.min(4, 2 + Math.floor((lv - 1) / 2));
+  return { rest: RESTS[i], items: ITEMS[i].slice(0, nCheck), dest: DESTS[(lv * 3 + 1) % DESTS.length], dest2: DESTS[(lv * 3 + 4) % DESTS.length], dist,
+    prep: Math.min(2 + 0.4 * (lv - 1), 5), nCust: lv >= 2 ? 2 : 1, pay: 8 + lv * 1.5 };
 }
 function addSprite(k, o) { if (k >= 0 && k < nseg + 2) (segSprites[k] || (segSprites[k] = [])).push(o); }
 function newPed(z, x, vx) {
@@ -301,8 +326,9 @@ function buildLevel(lv) {
   finishZ = START + order.dist * 100;
   const finSeg = Math.ceil(finishZ / SEG);
   nseg = finSeg + DRAW + 200;
-  const nStops = lv >= 2 ? 2 : 1, stopSegs = [];
-  for (let i = 1; i <= nStops; i++) stopSegs.push(Math.ceil((START + order.dist * 100 * i / nStops) / SEG));
+  const stopZ = [START + order.dist * 30];              // loja a 30% do caminho, depois os clientes
+  for (let i = 1; i <= order.nCust; i++) stopZ.push(START + order.dist * 100 * (0.3 + 0.7 * i / order.nCust));
+  const stopSegs = stopZ.map(z => Math.ceil(z / SEG));
   cw = new Uint8Array(nseg + 2);
   segSprites = new Array(nseg + 2);
   circuit = CIRCUITS[(lv - 1) % CIRCUITS.length];
@@ -397,19 +423,19 @@ function buildLevel(lv) {
     oncoming.push({ t:'on', z: START + 3000 + rnd(0, DRAW * SEG), x: -LANES[i % 3] + rnd(-0.02, 0.02), v: [1250, 1050, 800][i % 3] * rnd(0.95, 1.05),
       hw: 92 / ROAD, len: 430, col: pick(CAR_COLS) });
 
-  stops = []; stopIdx = 0;
-  for (let i = 1; i <= nStops; i++) {
-    const c = newPed(START + order.dist * 100 * i / nStops, 1.07, 0);
-    c.t = 'cust'; c.n = i; c.done = false; c.shirt = '#ffffff';
-    stops.push(c); addSprite(Math.floor(c.z / SEG), c);
-  }
-  tipLimit = order.time * 0.3;                           // caixinha: terminar com 30% do prazo sobrando
+  stops = []; stopIdx = 0; prep = null;
+  stopZ.forEach((z, i) => {
+    const c = newPed(z, 1.07, 0);
+    c.t = 'cust'; c.kind = i ? 'cli' : 'loja'; c.n = i ? i : 'L'; c.done = false; c.shirt = i ? '#ffffff' : '#10a880';
+    stops.push(c); addSprite(Math.floor(z / SEG), c);
+  });
+  tipLimit = TIP_LIMIT;
 
   skyline = [];
   for (let x = 0; x < 1.02; ) { const w = rnd(0.02, 0.06); skyline.push({ x, w, h: rnd(0.02, 0.1) }); x += w; }
 
   pos = START; px = LANES[1]; speed = 0; steer = 0; steerS = 0; braking = false;
-  timeLeft = order.time; food = 100; hurtCd = 0; shake = 0; bump = 0; gear = 1; shiftT = 0;
+  timeLeft = LIMIT; food = 100; hurtCd = 0; shake = 0; bump = 0; gear = 1; shiftT = 0;
   wheelie = 0; wHold = 0; wCool = 0; wOn = false; stunt = 0; stuntT = 0;
 }
 
@@ -423,8 +449,43 @@ function initAudio() {
     const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 520;
     engGain = AC.createGain(); engGain.gain.value = 0;
     eng.connect(f); f.connect(engGain); engGain.connect(AC.destination); eng.start();
+    musGain = AC.createGain(); musGain.connect(AC.destination);
+    noiseBuf = AC.createBuffer(1, AC.sampleRate * 0.5, AC.sampleRate);
+    const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
   } catch (e) { AC = null; }
 }
+// trilha sonora no estilo dos consoles antigos: dois canais de onda quadrada e ruído
+const MIDI = n => 440 * Math.pow(2, (n - 69) / 12);
+const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];           // Lá m, Fá, Dó, Sol
+const ARP = [0, 1, 2, 1, 0, 2, 1, 2, 0, 1, 2, 1, 2, 1, 2, -1];
+const TUNE = [[76, -1, 76, 74, 72, -1, 74, -1, 76, -1, 81, -1, 79, -1, 76, -1], [77, -1, 77, 76, 74, -1, 72, -1, 74, -1, 77, -1, 76, -1, 72, -1],
+  [79, -1, 79, 76, 72, -1, 76, -1, 79, -1, 84, -1, 83, -1, 79, -1], [74, -1, 79, -1, 83, -1, 81, 79, 76, -1, 74, -1, 71, -1, -1, -1]];
+let musGain = null, musStep = 0, musNext = 0, noiseBuf = null;
+function musNote(freq, t, dur, vol) {
+  const o = AC.createOscillator(), g = AC.createGain(); o.type = 'square'; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.linearRampToValueAtTime(0, t + dur);
+  o.connect(g); g.connect(musGain); o.start(t); o.stop(t + dur + 0.01);
+}
+function musNoise(t, dur, vol) {
+  const sN = AC.createBufferSource(), g = AC.createGain(); sN.buffer = noiseBuf;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+  sN.connect(g); g.connect(musGain); sN.start(t, Math.random() * 0.4, dur + 0.02);
+}
+function musTick() {
+  if (!AC || !musGain || AC.state !== 'running') return;
+  musGain.gain.value = muted ? 0 : (state === 'play' && !prep ? 1 : 0.6);
+  const sd = 60 / ((state === 'play' && timeLeft < 0) ? 156 : 132) / 4;            // atrasado: a música acelera
+  if (musNext < AC.currentTime) musNext = AC.currentTime + 0.05;
+  while (musNext < AC.currentTime + 0.15) {
+    const st = musStep % 16, bar = Math.floor(musStep / 16), ch = CHORDS[bar % 4], sect = Math.floor(bar / 4) % 4, t = musNext;
+    const lead = sect < 2 ? (ARP[st] < 0 ? -1 : ch[ARP[st]] + 12) : TUNE[bar % 4][st];
+    if (lead > 0) musNote(MIDI(lead), t, sd * 0.9, 0.03);
+    if (st % 2 === 0) musNote(MIDI(ch[0] - 12 + (st % 4 === 2 ? 12 : 0)), t, sd * 1.5, 0.045);
+    if (st % 8 === 4) musNoise(t, 0.09, 0.05); else if (st % 4 === 2) musNoise(t, 0.03, 0.02);
+    musNext += sd; musStep++;
+  }
+}
+setInterval(musTick, 50);
 function beep(freq, dur, type, vol, when) {
   if (!AC || muted) return;
   const t = AC.currentTime + (when || 0), o = AC.createOscillator(), g = AC.createGain();
@@ -466,7 +527,7 @@ function toggleFull() {
 }
 function show(html, onGo) {
   card.innerHTML = html; ui.classList.remove('off'); ui.scrollTop = 0;
-  hud.classList.remove('on'); brakeBtn.classList.remove('on'); wheelBtn.classList.remove('on');
+  hud.classList.remove('on'); brakeBtn.classList.remove('on'); wheelBtn.classList.remove('on'); $('prep').classList.remove('on');
   const b = card.querySelector('.btn');
   if (b) b.addEventListener('click', () => { initAudio(); if (!fullAsked) { fullAsked = true; goFull(); } beep(660, 0.08, 'square', 0.06); onGo(); }, { once:true });
 }
@@ -482,8 +543,9 @@ function showMenu() {
     '<li><span>👆</span>Toque e segure no lado esquerdo ou direito da tela para virar</li>' +
     '<li><span>🛑</span>Botão FREIO (ou os dois lados ao mesmo tempo) para frear</li>' +
     '<li><span>🚗</span>Desvie de carros, ônibus, pedestres e buracos</li>' +
-    '<li><span>🙋</span>Para entregar, freie e pare ao lado do cliente, na área amarela junto à calçada</li>' +
-    '<li><span>🎁</span>Entregou rápido? O cliente dá caixinha</li>' +
+    '<li><span>⏱️</span>Cada pedido tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
+    '<li><span>🙋</span>Na loja e no cliente, freie e pare na área amarela junto à calçada; na loja, toque nos itens para conferir</li>' +
+    '<li><span>🎁</span>Em até 20 min o cliente dá caixinha; passou de 28, ele ganha desconto e você recebe menos</li>' +
     '<li><span>⚠️</span>Dá para ultrapassar pela contramão, mas os carros vêm de frente</li>' +
     '<li><span>🤘</span>EMPINA: segure para dar grau e ganhar bônus; virar fica difícil e, se passar do tempo ou bater, você cai</li>' +
     '<li><span>↪️</span>Nas curvas a moto é jogada para fora: vire para dentro ou freie</li>' +
@@ -491,19 +553,18 @@ function showMenu() {
     '<button class="btn">COMEÇAR TURNO</button>' + bestLine(), () => { level = 0; money = 0; delivered = 0; nextOffer(); });
 }
 function nextOffer() {
-  level++; buildLevel(level); state = 'offer';
-  const prevT = level > 1 ? makeOrder(level - 1).time : 0;
-  show('<span class="tag">Fase ' + level + ' · ' + pal.name + '</span>' +
-    '<h2>' + order.rest + '</h2><p>' + order.items + '</p>' +
-    '<dl><dt>Circuito</dt><dd>' + circuit.name + '</dd>' +
-    '<dt>Traçado</dt><dd>' + circuit.desc + '</dd>' +
-    '<dt>' + (stops.length > 1 ? '1º cliente' : 'Entregar em') + '</dt><dd>' + (stops.length > 1 ? order.dest2 : order.dest) + '</dd>' +
-    (stops.length > 1 ? '<dt>2º cliente</dt><dd>' + order.dest + '</dd>' : '') +
-    '<dt>Caixinha</dt><dd>se sobrar ' + Math.ceil(tipLimit) + ' s ou mais</dd>' +
+  level++; buildLevel(level); state = 'offer';               // o pedido entrou: o relógio já corre nesta tela
+  const nC = order.nCust;
+  show('<span class="tag">🔔 Novo pedido · Fase ' + level + ' · ' + pal.name + '</span>' +
+    '<div class="oclock" id="oClock">' + fmtClock(timeLeft) + '</div><p class="osub">Entrega em até 28 min · o relógio já está correndo</p>' +
+    '<h2>' + order.rest + '</h2><p>' + order.items.join(' · ') + '</p>' +
+    '<dl><dt>1. Retirar em</dt><dd>' + order.rest + '</dd>' +
+    '<dt>2. Entregar em</dt><dd>' + (nC > 1 ? order.dest2 + '<br>' : '') + order.dest + '</dd>' +
+    '<dt>Circuito</dt><dd>' + circuit.name + ' · ' + circuit.desc + '</dd>' +
     '<dt>Distância</dt><dd>' + order.dist + ' m</dd>' +
-    '<dt>Prazo</dt><dd>' + order.time + ' s' + (prevT > order.time ? ' (−' + (prevT - order.time) + ' s)' : '') + '</dd>' +
+    '<dt>Caixinha</dt><dd>entregando em até 20 min</dd>' +
     '<dt>Valor da corrida</dt><dd class="big">' + brl(order.pay) + '</dd></dl>' +
-    '<button class="btn">ACEITAR E SAIR</button>', startPlay);
+    '<button class="btn">ACEITAR PEDIDO</button>', startPlay);
 }
 function startPlay() {
   state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on'); wheelBtn.classList.add('on'); wheelHeld = false;
@@ -515,15 +576,16 @@ function startPlay() {
 }
 function finishDelivery() {
   state = 'result'; delivered++;
-  const bonusT = timeLeft * 0.12, tip = timeLeft >= tipLimit ? 4 + level : 0;
-  const total = (order.pay + bonusT) * (0.5 + 0.5 * food / 100) + tip + stunt;
+  const late = timeLeft < 0, d = lateDisc(timeLeft), took = fmtClock(LIMIT - timeLeft);
+  const bonusT = Math.max(0, timeLeft) * 0.12, tip = timeLeft >= tipLimit ? 4 + level : 0;
+  const total = (order.pay * (1 - d) + bonusT) * (0.5 + 0.5 * food / 100) + tip + stunt;
   money += total;
   beep(660, 0.12, 'square', 0.08); beep(880, 0.12, 'square', 0.08, 0.13); beep(1320, 0.25, 'square', 0.08, 0.26);
-  show('<span class="tag" style="background:var(--ok)">Entregue no prazo</span>' +
-    '<h2>' + (tip ? '🎁 Ganhou caixinha!' : food >= 50 ? 'Pedido entregue' : 'Chegou… meio amassado') + '</h2>' +
-    '<p>' + (tip ? 'Entrega rápida: sobrou ' + timeLeft.toFixed(1).replace('.', ',') + ' s de ' + order.time + ' s.' : 'Sem caixinha: era preciso sobrar ' + Math.ceil(tipLimit) + ' s e sobrou ' + timeLeft.toFixed(1).replace('.', ',') + ' s.') + '</p>' +
+  show('<span class="tag" style="background:var(--' + (late ? 'red);color:#fff' : 'ok)') + '">' + (late ? 'Entregue com atraso' : 'Entregue em até 28 min') + '</span>' +
+    '<h2>' + (tip ? '🎁 Ganhou caixinha!' : late ? 'Cliente ganhou desconto' : food >= 50 ? 'Pedido entregue' : 'Chegou… meio amassado') + '</h2>' +
+    '<p>Tempo de entrega: ' + took + ' (prazo 28:00). ' + (tip ? 'Chegou em até 20 min.' : late ? 'O atraso virou ' + Math.round(d * 100) + '% de desconto para o cliente, descontado da sua corrida.' : 'Caixinha só para entregas em até 20 min.') + '</p>' +
     '<dl><dt>Corrida</dt><dd>' + brl(order.pay) + '</dd>' +
-    '<dt>Bônus de tempo (' + timeLeft.toFixed(1).replace('.', ',') + ' s)</dt><dd>' + brl(bonusT) + '</dd>' +
+    (late ? '<dt>Desconto por atraso (' + Math.round(d * 100) + '%)</dt><dd>−' + brl(order.pay * d) + '</dd>' : '<dt>Bônus de tempo</dt><dd>' + brl(bonusT) + '</dd>') +
     '<dt>Estado do pedido</dt><dd>' + Math.round(food) + '%</dd>' +
     '<dt>Caixinha do cliente</dt><dd>' + brl(tip) + '</dd>' +
     '<dt>Bônus de grau</dt><dd>' + brl(stunt) + '</dd>' +
@@ -540,8 +602,8 @@ function gameOver(why) {
   }
   beep(220, 0.3, 'sawtooth', 0.08); beep(160, 0.5, 'sawtooth', 0.08, 0.28);
   show('<span class="tag" style="background:var(--red);color:#fff">Fim do turno</span>' +
-    '<h2>' + (why === 'time' ? 'Pedido atrasado' : 'Pedido destruído') + '</h2>' +
-    '<p>' + (why === 'time' ? 'O prazo acabou a ' + Math.max(1, Math.round((nextStop().z - pos) / 100)) + ' m do cliente.' : 'A comida não sobreviveu ao trajeto.') + '</p>' +
+    '<h2>' + (why === 'time' ? 'Pedido cancelado' : 'Pedido destruído') + '</h2>' +
+    '<p>' + (why === 'time' ? 'Passou de 15 min de atraso e o cliente cancelou.' : 'A comida não sobreviveu ao trajeto.') + '</p>' +
     '<dl><dt>Entregas concluídas</dt><dd>' + delivered + '</dd>' +
     '<dt>Ganhos do turno</dt><dd class="big">' + brl(money) + '</dd></dl>' +
     (rec ? '<p style="color:var(--yel);font-weight:700">Novo recorde!</p>' : '') +
@@ -567,7 +629,8 @@ wheelBtn.addEventListener('pointerdown', e => { wheelHeld = true; wheelBtn.class
 const wup = () => { wheelHeld = false; wheelBtn.classList.remove('down'); };
 wheelBtn.addEventListener('pointerup', wup); wheelBtn.addEventListener('pointercancel', wup);
 $('mute').addEventListener('click', () => { muted = !muted; $('mute').textContent = muted ? '🔇' : '🔊'; });
-document.addEventListener('visibilitychange', () => { last = performance.now(); if (document.hidden && engGain) engGain.gain.value = 0; });
+document.addEventListener('visibilitychange', () => { last = performance.now(); if (document.hidden && engGain) engGain.gain.value = 0;
+  if (AC) { try { if (document.hidden) AC.suspend(); else AC.resume(); } catch (e) {} } });
 
 function readInput() {
   let l = false, r = false;
@@ -580,6 +643,35 @@ function readInput() {
 }
 
 /* ================= simulação ================= */
+function moveStop(c, z) {            // reposiciona uma parada (loja ou cliente) mais adiante
+  const a = segSprites[Math.floor(c.z / SEG)]; if (a) { const i = a.indexOf(c); if (i >= 0) a.splice(i, 1); }
+  c.z = z; addSprite(Math.floor(z / SEG), c);
+  const j = stops.indexOf(c);
+  if (j < stops.length - 1 && stops[j + 1].z < z + 9000) moveStop(stops[j + 1], z + 9000);
+  finishZ = stops[stops.length - 1].z;
+}
+function startPrep() {
+  prep = { t: order.prep, ready: false, left: order.items.length };
+  speed = 0; wOn = false; touches.clear();
+  $('pTitle').textContent = 'Retirada · ' + order.rest;
+  $('pStat').textContent = 'Preparando o pedido…'; $('pBar').style.width = '0%';
+  const list = $('pList'); list.innerHTML = '';
+  order.items.forEach(it => {
+    const b = document.createElement('button'); b.className = 'pitem wait'; b.textContent = '☐ ' + it;
+    b.addEventListener('click', () => {
+      if (!prep || !prep.ready || b.classList.contains('ok')) return;
+      b.classList.add('ok'); b.textContent = '☑ ' + it; beep(990, 0.06, 'square', 0.06);
+      if (--prep.left <= 0) {
+        prep = null; $('prep').classList.remove('on'); touches.clear(); keys = {};
+        stops[stopIdx].done = true; stopIdx++;
+        beep(880, 0.1, 'square', 0.08); beep(1175, 0.16, 'square', 0.08, 0.1);
+        toast('Pedido retirado! Leve ao cliente', '#7dffb0');
+      }
+    });
+    list.appendChild(b);
+  });
+  $('prep').classList.add('on');
+}
 function hurt(dmg, msg, big) {
   if (hurtCd > 0) return;
   if (wOn) { wOn = false; wHold = 0; wCool = 1.5; stuntT = 0; dmg += 8; msg = 'Caiu do grau! ' + msg; }
@@ -589,6 +681,17 @@ function hurt(dmg, msg, big) {
 }
 function update(dt) {
   tAnim += dt;
+  if (prep) {                       // parado na loja: o relógio continua correndo
+    timeLeft -= dt; speed = 0; steerS *= 0.8; wheelie *= 0.8;
+    if (engGain) { engGain.gain.value = muted ? 0 : 0.02; eng.frequency.value = 58; }
+    if (!prep.ready) {
+      prep.t -= dt; $('pBar').style.width = clamp(1 - prep.t / order.prep, 0, 1) * 100 + '%';
+      if (prep.t <= 0) { prep.ready = true; $('pStat').textContent = 'Pronto! Toque em cada item para conferir'; beep(1320, 0.12, 'square', 0.07);
+        document.querySelectorAll('.pitem').forEach(b => b.classList.remove('wait')); }
+    }
+    if (timeLeft < -CANCEL) { engGain && (engGain.gain.value = 0); gameOver('time'); }
+    return;
+  }
   readInput();
   steerS += (steer - steerS) * Math.min(1, dt * 9);
   hurtCd = Math.max(0, hurtCd - dt);
@@ -683,35 +786,35 @@ function update(dt) {
     eng.frequency.value = 62 + gear * 9 + clamp((speed * 0.036 - lo) / (hi - lo), 0, 1) * 70;
   }
   const c = nextStop();
-  if (pos > c.z - ZONE_BACK && pos <= c.z + ZONE_FWD && speed <= STOP_V && px >= 0.45) {       // parou ao lado do cliente
+  if (pos > c.z - ZONE_BACK && pos <= c.z + ZONE_FWD && speed <= STOP_V && px >= 0.45) {       // parou na área amarela
+    if (c.kind === 'loja') { startPrep(); return; }
     c.done = true; stopIdx++;
     beep(880, 0.1, 'square', 0.08); beep(1175, 0.16, 'square', 0.08, 0.1);
-    if (stopIdx >= stops.length) { timeLeft = Math.max(0, timeLeft); if (engGain) engGain.gain.value = 0; finishDelivery(); return; }
-    toast('Entregue! ' + stopIdx + '/' + stops.length, '#7dffb0');
-  } else if (pos > c.z + ZONE_FWD) {                     // passou direto: o cliente espera 90 m adiante
-    const a = segSprites[Math.floor(c.z / SEG)]; if (a) { const i = a.indexOf(c); if (i >= 0) a.splice(i, 1); }
-    c.z = pos + 9000; addSprite(Math.floor(c.z / SEG), c);
-    if (c === stops[stops.length - 1]) finishZ = c.z;
-    toast('Passou do cliente! Pare adiante', '#ff8a8d');
+    if (stopIdx >= stops.length) { if (engGain) engGain.gain.value = 0; finishDelivery(); return; }
+    toast('Entregue! ' + (stopIdx - 1) + '/' + order.nCust, '#7dffb0');
+  } else if (pos > c.z + ZONE_FWD) {                     // passou direto: a parada fica 90 m adiante
+    moveStop(c, pos + 9000);
+    toast(c.kind === 'loja' ? 'Passou da loja! Pare adiante' : 'Passou do cliente! Pare adiante', '#ff8a8d');
   }
   if (food <= 0) { if (engGain) engGain.gain.value = 0; gameOver('food'); return; }
-  if (timeLeft <= 0) { timeLeft = 0; if (engGain) engGain.gain.value = 0; gameOver('time'); return; }
+  if (timeLeft < -CANCEL) { if (engGain) engGain.gain.value = 0; gameOver('time'); return; }
 }
 
 let hudCache = {};
 function setTxt(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 function updateHud() {
-  const t = Math.max(0, Math.ceil(timeLeft));
-  setTxt('tTime', String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'));
-  $('hc').classList.toggle('low', timeLeft < 10);
-  const ns = nextStop(), left = Math.max(0, ns.z - pos) / 100, near = left < 130;
+  setTxt('tTime', fmtClock(timeLeft));
+  setTxt('tLbl', timeLeft >= 0 ? 'ENTREGA EM ATÉ 28 MIN' : 'ATRASADO');
+  $('hc').classList.toggle('low', timeLeft < 10 && timeLeft >= 0);
+  $('hc').classList.toggle('late', timeLeft < 0);
+  const ns = nextStop(), left = Math.max(0, ns.z - pos) / 100, near = left < 130, loja = ns.kind === 'loja';
   const lbl = left >= 1000 ? (left / 1000).toFixed(2).replace('.', ',') + ' km' : Math.ceil(left) + ' m';
-  setTxt('tDist', near ? 'PARE NO CLIENTE: ' + lbl : 'DISTÂNCIA: ' + lbl);
+  setTxt('tDist', (near ? (loja ? 'PARE NA LOJA: ' : 'PARE NO CLIENTE: ') : (loja ? 'LOJA A ' : 'CLIENTE A ')) + lbl);
   $('hc').classList.toggle('stop', near);
-  setTxt('tDest', (stops.length > 1 ? 'Cliente ' + Math.min(stopIdx + 1, stops.length) + '/' + stops.length + ' · ' : '') + (stops.length > 1 && stopIdx === 0 ? order.dest2 : order.dest));
-  const tl = Math.max(0, Math.ceil(timeLeft - tipLimit)), tipOn = timeLeft >= tipLimit;
-  setTxt('tTip', tipOn ? '🎁 caixinha: faltam ' + tl + ' s' : '🎁 caixinha perdida');
-  $('tTip').classList.toggle('lost', !tipOn);
+  setTxt('tDest', loja ? '1/2 RETIRAR · ' + order.rest : '2/2 ENTREGAR' + (order.nCust > 1 ? ' ' + Math.min(stopIdx, order.nCust) + '/' + order.nCust : '') + ' · ' + (order.nCust > 1 && stopIdx === 1 ? order.dest2 : order.dest));
+  const tipOn = timeLeft >= tipLimit;
+  setTxt('tTip', tipOn ? '🎁 caixinha por mais ' + fmtClock(timeLeft - tipLimit) : timeLeft >= 0 ? '🎁 caixinha perdida' : 'desconto ao cliente: ' + Math.round(lateDisc(timeLeft) * 100) + '%');
+  $('tTip').classList.toggle('lost', !tipOn && timeLeft >= 0); $('tTip').classList.toggle('bad', timeLeft < 0);
   setTxt('tMoney', brl(money));
   const prog = clamp((pos - START) / (finishZ - START) * 100, 0, 100);
   setTxt('tFood', 'PEDIDO ' + Math.round(food) + '%');
@@ -1178,7 +1281,7 @@ function drawMinimap() {
   if (dd > lim) { dx = mx + ddx / dd * lim; dy = my + ddy / dd * lim; }
   hx.fillStyle = '#ffd100'; hx.strokeStyle = '#111'; hx.lineWidth = 1.2;
   hx.beginPath(); hx.moveTo(dx, dy + 3); hx.lineTo(dx - 6, dy - 6); hx.arc(dx, dy - 9, 7, Math.PI * 0.85, Math.PI * 0.15); hx.closePath(); hx.fill(); hx.stroke();
-  hx.fillStyle = '#111'; hx.font = '900 9px system-ui,sans-serif'; hx.textAlign = 'center'; hx.textBaseline = 'middle'; hx.fillText('K', dx, dy - 8.5);
+  hx.fillStyle = '#111'; hx.font = '900 9px system-ui,sans-serif'; hx.textAlign = 'center'; hx.textBaseline = 'middle'; hx.fillText(nextStop().kind === 'loja' ? 'L' : 'K', dx, dy - 8.5);
   // jogador
   const ax = mx + px * ROAD * kx;
   hx.fillStyle = '#1f6fe0'; hx.strokeStyle = '#fff'; hx.lineWidth = 1.5;
@@ -1233,8 +1336,8 @@ let last = performance.now();
 function frame(now) {
   let dt = (now - last) / 1000; last = now;
   if (dt > 0.05) dt = 0.05; if (dt < 0) dt = 0;
-  if (state === 'play') { update(dt); updateHud(); }
-  else tAnim += dt;
+  if (state === 'play') { update(dt); if (state === 'play') updateHud(); }
+  else { tAnim += dt; if (state === 'offer') { timeLeft -= dt; const oc = $('oClock'); if (oc) oc.textContent = fmtClock(timeLeft); } }
   if (segSprites) render();
   requestAnimationFrame(frame);
 }
@@ -1244,7 +1347,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, time: order.time, circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, musStep, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
