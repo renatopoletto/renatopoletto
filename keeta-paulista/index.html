@@ -199,17 +199,17 @@ const SEG = 300;          // comprimento de um segmento de pista (3 m)
 const ROAD = 1050;        // meia largura da rua: 3 faixas de 3,5 m por sentido
 const DRAW = 140;         // segmentos desenhados (420 m)
 const CAMD = 520;         // distância da câmera até a moto
-const VMAX = 2778;        // 100 km/h
+const VMAX = 1667;        // 60 km/h: limite urbano do jogo
 const V_CALC = 420;       // 15 km/h na calçada
 const BRAKE = 1700;
-const GEAR_KMH = [0, 22, 42, 62, 82];              // troca de marcha (km/h)
+const GEAR_KMH = [0, 12, 24, 36, 48];              // troca de marcha (km/h)
 const GEAR_ACC = [640, 540, 450, 350, 250];        // aceleração por marcha (cm/s²)
 const CENTRI = 0.065;     // força que joga a moto para fora da curva
 const BLOCK = 8;          // segmentos por prédio (24 m)
 const BL = 1.43;          // linha de fachada (calçada de 4,5 m)
 const FH = 330;           // altura de um andar
 const LANES = [1 / 6, 0.5, 5 / 6];          // faixas do sentido do jogador (a da direita é de ônibus)
-const LANE_V = [1400, 1100, 700];
+const LANE_V = [1000, 800, 520];
 const START = 1500;
 const BIKE_LEN = 200, P_HW = 38 / ROAD;
 
@@ -338,7 +338,7 @@ let order = null, phase = null, oi = 0, doneList = [], pal = PAL[0];   // pedido
 let nseg = 0, cw = null, curve = null, circuit = CIRCUITS[0], segSprites = null, blocks = [[], []];
 let gear = 1, shiftT = 0, skyOff = 0;
 let stops = [], stopIdx = 0, tipLimit = 0;      // clientes da fase, o próximo e o tempo-limite da caixinha
-const TS = 20;                                   // 1 segundo real = 20 segundos do relógio do jogo
+const TS = 16;                                   // 1 segundo real = 16 segundos do relógio do jogo (28 min = 105 s)
 const LIMIT = 28 * 60 / TS;                      // 28 minutos do jogo = 84 s reais, igual em todas as fases
 const TIP_LIMIT = 8 * 60 / TS;                   // caixinha: entregar em até 20 min (sobrando 8)
 const CANCEL = 15 * 60 / TS;                     // mais de 15 min de atraso: pedido cancelado
@@ -349,10 +349,10 @@ let prep = null;                                 // conferência do pedido na lo
 const STREAK_M = [1, 1.2, 1.5, 2];               // multiplicador da corrida conforme entregas seguidas no prazo
 const TIERS = [{ n:'Bronze', v:0, c:'#cd7f32' }, { n:'Prata', v:150, c:'#c9d2d8' }, { n:'Ouro', v:500, c:'#ffcf33' }, { n:'Diamante', v:1500, c:'#5ee6ff' }];
 const UPG = [{ id:'bau', n:'Baú térmico', d:'−15% de dano no pedido por nível' }, { id:'freio', n:'Freio a disco', d:'+20% de frenagem por nível' },
-  { id:'pneu', n:'Pneu reforçado', d:'buraco tira menos pedido e velocidade' }, { id:'motor', n:'Motor preparado', d:'+5 km/h e mais arrancada por nível' }];
+  { id:'pneu', n:'Pneu reforçado', d:'buraco tira menos pedido e velocidade' }, { id:'motor', n:'Motor revisado', d:'retoma a velocidade mais rápido (máxima segue 60 km/h)' }];
 const UPG_COST = [30, 70, 150];
-const BONUS = [{ id:'nohit', t:'Termine a fase sem bater', s:'sem bater', v:6 }, { id:'wheelie', t:'Empine por 5 s no total', s:'empinar 5 s', v:5 },
-  { id:'fast', t:'Faça cada entrega em até 15 min', s:'entregas em 15 min', v:7 }, { id:'top', t:'Fique 8 s acima de 90 km/h', s:'8 s a 90+ km/h', v:5 }];
+const BONUS = [{ id:'nohit', t:'Termine a fase sem nenhuma batida', s:'sem bater', v:6 }, { id:'care', t:'Entregue todos os pedidos com 90% ou mais', s:'pedidos 90%+', v:5 },
+  { id:'ontime', t:'Faça todas as entregas no prazo', s:'tudo no prazo', v:4 }];
 // Cupons: troque esta lista pelos códigos reais fornecidos pela marca. "need" = entregas seguidas no prazo num mesmo turno.
 // Itens com demo:true aparecem marcados como demonstração, sem valor real.
 const COUPONS = [{ id:'demo-seq5', need:5, code:'DEMO-28MIN', desc:'5 entregas seguidas no prazo', demo:true }];
@@ -364,13 +364,14 @@ let streak = 0, bestStreak = 0, bonus = BONUS[0], bHits = 0, bWheel = 0, bTop = 
 function credit(v) { money += v; prof.wallet += v; prof.life += v; saveProf(); }
 function bonusState() {              // 1 = cumprida, 0 = em andamento, -1 = perdida
   if (bonus.id === 'nohit') return bHits ? -1 : (state === 'result' ? 1 : 0);
-  if (bonus.id === 'wheelie') return bWheel >= 5 ? 1 : 0;
-  if (bonus.id === 'top') return bTop >= 8 ? 1 : 0;
+  if (bonus.id === 'care') return bCare ? (state === 'result' ? 1 : 0) : -1;
   return bFast ? (state === 'result' ? 1 : 0) : -1;
 }
 function newTurn() { level = START_LEVEL - 1; money = 0; delivered = 0; streak = 0; bestStreak = 0; nextOffer(); }
 const ZONE_BACK = 1500, ZONE_FWD = 600, STOP_V = 560;   // zona de entrega (cm) e velocidade máxima para entregar (20 km/h)
 const nextStop = () => stops[Math.min(stopIdx, stops.length - 1)];
+let yieldCount = 0;
+let yielding = false, yieldMsg = -9, dHits = 0, bCare = true;   // preferência ao pedestre; batidas da entrega atual
 let wheelie = 0, wHold = 0, wCool = 0, wOn = false, stunt = 0, stuntT = 0;   // empinada
 const W_MAX = 3.2;        // segundos que dá para segurar a roda no ar
 const CX = new Float32Array(DRAW + 2);
@@ -389,7 +390,7 @@ try { const b = JSON.parse(localStorage.getItem('correPaulistaBest') || 'null');
 /* ================= geração da fase ================= */
 function makePhase(lv) {
   // cada entrega tem 28 min. Fase 1: um pedido; da fase 2 em diante: dois pedidos em sequência (entra, retira, entrega)
-  const n = lv >= 2 ? 2 : 1, L = n === 1 ? 1000 : Math.min(750 + 50 * (lv - 2), 1000);
+  const n = lv >= 2 ? 2 : 1, L = n === 1 ? 800 : Math.min(600 + 40 * (lv - 2), 800);
   const nCheck = Math.min(4, 2 + Math.floor((lv - 1) / 2)), list = [];
   for (let j = 0; j < n; j++) {
     const i = (lv - 1 + j * 3) % ITEMS.length;
@@ -404,7 +405,7 @@ function newPed(z, x, vx) {
 
 function buildLevel(lv) {
   setSong(lv - 1);
-  bonus = pick(BONUS); bHits = 0; bWheel = 0; bTop = 0; bFast = true; tierStart = tierIdx(); newCoupons = [];
+  bonus = pick(BONUS); bHits = 0; bWheel = 0; bTop = 0; bFast = true; bCare = true; dHits = 0; tierStart = tierIdx(); newCoupons = [];
   phase = makePhase(lv); oi = 0; order = phase.list[0]; doneList = [];
   pal = PAL[(lv - 1) % PAL.length];
   finishZ = START + phase.total * 100;
@@ -501,11 +502,6 @@ function buildLevel(lv) {
     if (cw[k]) continue;
     addSprite(k, { t:'hole', x, z, w:rnd(95, 150) });
   }
-  // pedestres atravessando fora da faixa
-  for (let i = 0; i < Math.max(0, lv - 1) * 2; i++) {
-    const dir = Math.random() < 0.5 ? -1 : 1;
-    peds.push(newPed(rnd(START + 9000, finishZ - 3000), rnd(-0.9, 0.9), dir * rnd(90, 150) / ROAD));
-  }
   // carros e ônibus no sentido do jogador
   const gMin = Math.max(2000, 4200 - 400 * lv), gMax = Math.max(4200, 8800 - 750 * lv);
   for (let l = 0; l < 3; l++) {
@@ -519,7 +515,7 @@ function buildLevel(lv) {
   }
   // sentido oposto
   for (let i = 0; i < 12 + Math.min(lv, 6); i++)
-    oncoming.push({ t:'on', z: START + 3000 + rnd(0, DRAW * SEG), x: -LANES[i % 3] + rnd(-0.02, 0.02), v: [1250, 1050, 800][i % 3] * rnd(0.95, 1.05),
+    oncoming.push({ t:'on', z: START + 3000 + rnd(0, DRAW * SEG), x: -LANES[i % 3] + rnd(-0.02, 0.02), v: [1100, 950, 800][i % 3] * rnd(0.95, 1.05),
       hw: 92 / ROAD, len: 430, col: pick(CAR_COLS) });
 
   stops = []; stopIdx = 0; prep = null;
@@ -703,11 +699,13 @@ function showMenu() {
     '<p>Carteira: <b style="color:#ffd100">' + brl(prof.wallet) + '</b> · ' + (nx ? 'faltam ' + brl(nx.v - prof.life) + ' para ' + nx.n : 'categoria máxima') + '</p>' +
     '<ul class="how">' +
     '<li><span>⏱️</span>Cada entrega tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
-    '<li><span>👆</span>Toque no lado esquerdo ou direito para virar; FREIO para frear; EMPINA para dar grau</li>' +
-    '<li><span>🙋</span>Na loja e no cliente, pare na área amarela junto à calçada</li>' +
-    '<li><span>🔥</span>Entregas seguidas no prazo multiplicam a corrida: 1,2x, 1,5x e 2x. Atrasou, zera</li>' +
+    '<li><span>👆</span>Toque no lado esquerdo ou direito para trocar de faixa; FREIO para frear</li>' +
+    '<li><span>🚶</span>Pedestre tem preferência: a moto para sozinha na faixa</li>' +
+    '<li><span>🛡</span>Entrega sem batida rende bônus de direção segura</li>' +
+    '<li><span>🔥</span>Entregas seguidas no prazo multiplicam a corrida: 1,2x, 1,5x e 2x</li>' +
     '<li><span>🎁</span>Em até 20 min tem caixinha; passou de 28, o cliente ganha desconto</li>' +
     '</ul>' +
+    '<p class="best" style="text-align:left">Jogo de ficção. No trânsito real, respeite a sinalização, os limites de velocidade e os pedestres.</p>' +
     '<button class="btn">COMEÇAR TURNO</button>' +
     '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>' + bestLine(), newTurn);
   curScreen.regen = showMenu;
@@ -730,7 +728,7 @@ function nextOffer() {
     '<button class="btn">ACEITAR PEDIDO</button>', startPlay);
 }
 function startPlay() {
-  state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on'); wheelBtn.classList.add('on'); wheelHeld = false;
+  state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on'); wheelHeld = false;
    touches.clear(); keys = {}; hudCache = {};
   $('hL').classList.add('on'); $('hR').classList.add('on');
   setTimeout(() => { $('hL').classList.remove('on'); $('hR').classList.remove('on'); }, 3500);
@@ -738,13 +736,13 @@ function startPlay() {
   last = performance.now();
 }
 function closeDelivery() {             // fecha a conta de uma entrega no momento em que o cliente recebe
-  const onTime = timeLeft >= 0, d = lateDisc(timeLeft), tip = timeLeft >= tipLimit ? 4 + level : 0, bonusT = Math.max(0, timeLeft) * 0.12;
+  const onTime = timeLeft >= 0, d = lateDisc(timeLeft), tip = timeLeft >= tipLimit ? 4 + level : 0, safe = dHits === 0 ? 3 : 0;
   const m = onTime ? STREAK_M[Math.min(streak, 3)] : 1, tb = 1 + 0.05 * tierIdx();
-  const earn = (order.pay * (1 - d) * m + bonusT) * (0.5 + 0.5 * food / 100) * tb + tip;
+  const earn = order.pay * (1 - d) * m * (0.5 + 0.5 * food / 100) * tb + tip + safe;   // sem bônus por correr: o extra é por direção segura
   streak = onTime ? streak + 1 : 0; bestStreak = Math.max(bestStreak, streak);
-  if ((LIMIT - timeLeft) * TS > 15 * 60) bFast = false;
+  if (!onTime) bFast = false; if (food < 90) bCare = false;
   COUPONS.forEach(c => { if (streak >= c.need && !prof.coupons.includes(c.id)) { prof.coupons.push(c.id); newCoupons.push(c); } });
-  doneList.push({ rest: order.rest, took: fmtClock(LIMIT - timeLeft), late: !onTime, d, m, tip, earn, pay: order.pay, food: Math.round(food) });
+  doneList.push({ rest: order.rest, took: fmtClock(LIMIT - timeLeft), late: !onTime, d, m, tip, safe, earn, pay: order.pay, food: Math.round(food) });
   delivered++; credit(earn);
 }
 function finishDelivery() {            // fim da fase: resumo de todas as entregas
@@ -756,7 +754,7 @@ function finishDelivery() {            // fim da fase: resumo de todas as entreg
   beep(660, 0.12, 'square', 0.08); beep(880, 0.12, 'square', 0.08, 0.13); beep(1320, 0.25, 'square', 0.08, 0.26);
   let rows = '';
   doneList.forEach((x, i) => {
-    rows += '<dt>Entrega ' + (i + 1) + ' · ' + x.took + ' de 28:00' + (x.tip ? ' 🎁' : '') + (x.m > 1 ? ' 🔥' + String(x.m).replace('.', ',') + 'x' : '') + '</dt><dd>' + brl(x.earn) + '</dd>' +
+    rows += '<dt>Entrega ' + (i + 1) + ' · ' + x.took + ' de 28:00' + (x.tip ? ' 🎁' : '') + (x.safe ? ' 🛡' : '') + (x.m > 1 ? ' 🔥' + String(x.m).replace('.', ',') + 'x' : '') + '</dt><dd>' + brl(x.earn) + '</dd>' +
       (x.late ? '<dt>&nbsp;&nbsp;atraso: ' + Math.round(x.d * 100) + '% de desconto ao cliente</dt><dd>−' + brl(x.pay * x.d) + '</dd>' : '') +
       '<dt>&nbsp;&nbsp;estado do pedido</dt><dd>' + x.food + '%</dd>';
   });
@@ -767,7 +765,7 @@ function finishDelivery() {            // fim da fase: resumo de todas as entreg
     '<dl>' + rows +
     '<dt>Caixinhas</dt><dd>' + brl(tips) + '</dd>' +
     '<dt>★ ' + bonus.t + '</dt><dd>' + (bOk ? brl(bVal) : 'não cumprida') + '</dd>' +
-    '<dt>Bônus de grau</dt><dd>' + brl(stunt) + '</dd>' +
+    '<dt>🛡 Direção segura (entregas sem batida)</dt><dd>' + brl(doneList.reduce((a, x) => a + x.safe, 0)) + '</dd>' +
     (ti ? '<dt>Bônus da categoria ' + TIERS[ti].n + '</dt><dd>+' + ti * 5 + '% já incluído</dd>' : '') +
     '<dt>Total da fase</dt><dd class="big">' + brl(total) + '</dd>' +
     '<dt>Ganhos do turno</dt><dd>' + brl(money) + '</dd></dl>' +
@@ -792,6 +790,7 @@ function gameOver(why) {
     '<dt>Carteira</dt><dd>' + brl(prof.wallet) + '</dd>' +
     '<dt>Categoria</dt><dd>' + TIERS[ti].n + (nx ? ' · faltam ' + brl(nx.v - prof.life) + ' para ' + nx.n : '') + '</dd></dl>' +
     (rec ? '<p style="color:var(--yel);font-weight:700">Novo recorde!</p>' : '') +
+    '<p class="best" style="text-align:left">No trânsito real, pilote com calma: nenhuma entrega vale mais que a sua segurança.</p>' +
     '<button class="btn">TENTAR DE NOVO</button>' +
     '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>' + bestLine(), newTurn);
 }
@@ -831,7 +830,7 @@ function readInput() {
   if (keys.ArrowRight || keys.KeyD) r = true;
   braking = brakeHeld || (l && r) || keys.ArrowDown || keys.KeyS || keys.Space;
   steer = (l && r) ? 0 : l ? -1 : r ? 1 : 0;
-  wantWheel = wheelHeld || keys.ArrowUp || keys.KeyW;
+  wantWheel = false;                                     // empinar foi retirado do jogo
 }
 
 /* ================= simulação ================= */
@@ -855,7 +854,7 @@ function startPrep() {
       b.classList.add('ok'); b.textContent = '☑ ' + it; beep(990, 0.06, 'square', 0.06);
       if (--prep.left <= 0) {
         prep = null; $('prep').classList.remove('on'); touches.clear(); keys = {};
-        stops[stopIdx].done = true; stopIdx++; food = 100;    // pedido novo, inteiro
+        stops[stopIdx].done = true; stopIdx++; food = 100; dHits = 0;   // pedido novo, inteiro; zera as batidas desta entrega
         beep(880, 0.1, 'square', 0.08); beep(1175, 0.16, 'square', 0.08, 0.1);
         toast('Pedido retirado! Leve ao cliente', '#7dffb0');
       }
@@ -878,7 +877,7 @@ function startOffer(doneN) {               // segundo pedido da fase: entra com 
 }
 function hurt(dmg, msg, big) {
   if (hurtCd > 0) return;
-  bHits++; dmg = Math.max(1, Math.round(dmg * (1 - 0.15 * prof.upg.bau)));
+  bHits++; dHits++; dmg = Math.max(1, Math.round(dmg * (1 - 0.15 * prof.upg.bau)));
   if (wOn) { wOn = false; wHold = 0; wCool = 1.5; stuntT = 0; dmg += 8; msg = 'Caiu do grau! ' + msg; }
   food = Math.max(0, food - dmg); hurtCd = 0.9; shake = big ? 1 : 0.55;
   toast(msg + '  −' + dmg + '%', '#ff8a8d'); flash(); thud(big ? 0.4 : 0.22);
@@ -905,7 +904,7 @@ function update(dt) {
   bump *= Math.pow(0.002, dt);
 
   const onSide = px > 1.0;
-  const vmax = onSide ? V_CALC : VMAX + prof.upg.motor * 139;   // cada nível de motor: +5 km/h
+  const vmax = VMAX;                                     // a moto nunca passa de 60 km/h
   // empinada: precisa de velocidade, tem limite de tempo e rende bônus
   wCool = Math.max(0, wCool - dt);
   if (wOn) {
@@ -922,7 +921,7 @@ function update(dt) {
   if (g > gear) shiftT = 0.14;                           // pequena pausa ao subir de marcha
   gear = g; shiftT = Math.max(0, shiftT - dt);
   if (braking) speed = Math.max(0, speed - BRAKE * (1 + 0.2 * prof.upg.freio) * dt);
-  else if (speed < vmax && shiftT <= 0 && !wOn) speed = Math.min(vmax, speed + GEAR_ACC[gear - 1] * (1 + 0.08 * prof.upg.motor) * dt);
+  else if (speed < vmax && shiftT <= 0 && !wOn && !yielding) speed = Math.min(vmax, speed + GEAR_ACC[gear - 1] * (1 + 0.12 * prof.upg.motor) * dt);
   if (speed > vmax) speed = Math.max(vmax, speed - 2600 * dt);
   if (onSide && speed > 100) bump = Math.sin(tAnim * 40) * 5;
 
@@ -930,9 +929,8 @@ function update(dt) {
   const cv0 = curve[Math.floor(pos / SEG)] || 0, sp = speed / VMAX;
   px -= cv0 * CENTRI * sp * sp * dt;                     // curva empurra para fora
   skyOff += cv0 * sp * dt * 6;
-  px = clamp(px, -0.96, 1.2);
+  px = clamp(px, 0.045, 0.975);                          // a moto fica na sua mão: sem contramão e sem calçada
 
-  if (speed * 0.036 >= 90) bTop += dt;
   const prevFront = pos + BIKE_LEN;
   pos += speed * dt;
   let front = pos + BIKE_LEN;
@@ -963,12 +961,16 @@ function update(dt) {
       c.z = pos - c.len - 60;
     }
   }
-  // pedestres atravessando
+  // pedestres atravessando: preferência é deles. A moto freia sozinha e para antes; nunca há atropelamento
+  yielding = false;
   for (let i = 0; i < peds.length; i++) {
     const p = peds[i];
     p.x += p.vx * dt; if (p.x > 1.3) { p.x = 1.3; p.vx = -p.vx; } else if (p.x < -1.3) { p.x = -1.3; p.vx = -p.vx; }
-    if (p.z > prevFront - 40 && p.z <= front + 40 && Math.abs(px - p.x) < 0.07 && hurtCd <= 0) {
-      speed = 0; hurt(22, 'Cuidado com o pedestre!', true);
+    const dzp = p.z - front;
+    if (dzp > -40 && Math.abs(px - p.x) < 0.09 && dzp < speed * speed / 6400 + 550) {
+      yielding = true; speed = Math.max(0, speed - 3600 * dt);
+      if (dzp < 70) { speed = 0; pos = Math.min(pos, p.z - BIKE_LEN - 70); front = pos + BIKE_LEN; }
+      if (tAnim - yieldMsg > 4) { yieldMsg = tAnim; yieldCount++; toast('Preferência ao pedestre', '#7dffb0'); }
     }
   }
   // buracos e gente na calçada
@@ -989,7 +991,7 @@ function update(dt) {
   timeLeft -= dt;
   if (engGain) {
     engGain.gain.value = muted ? 0 : 0.02;
-    const lo = GEAR_KMH[gear - 1], hi = gear < 5 ? GEAR_KMH[gear] : 100;
+    const lo = GEAR_KMH[gear - 1], hi = gear < 5 ? GEAR_KMH[gear] : 60;
     eng.frequency.value = 62 + gear * 9 + clamp((speed * 0.036 - lo) / (hi - lo), 0, 1) * 70;
   }
   const c = nextStop();
@@ -1025,7 +1027,7 @@ function updateHud() {
   setTxt('tTip', tipOn ? '🎁 caixinha por mais ' + fmtClock(timeLeft - tipLimit) : timeLeft >= 0 ? '🎁 caixinha perdida' : 'desconto ao cliente: ' + Math.round(lateDisc(timeLeft) * 100) + '%');
   $('tTip').classList.toggle('lost', !tipOn && timeLeft >= 0); $('tTip').classList.toggle('bad', timeLeft < 0);
   setTxt('tMoney', brl(money) + (streak ? ' 🔥' + streak : ''));
-  const bs = bonusState(), bp = bonus.id === 'wheelie' ? ' ' + Math.min(5, bWheel).toFixed(1).replace('.', ',') + '/5' : bonus.id === 'top' ? ' ' + Math.min(8, bTop).toFixed(1).replace('.', ',') + '/8' : '';
+  const bs = bonusState(), bp = '';
   setTxt('tBonus', '★ ' + bonus.s + (bs === 1 ? ' ✓' : bp));
   $('tBonus').className = bs === 1 ? 'ok' : bs === -1 ? 'no' : '';
   $('av').style.borderColor = TIERS[tierIdx()].c;
@@ -1608,10 +1610,10 @@ function drawSpeedo() {
   const w = 128 * U, h = 76 * U, x = FW - 10 - sR - w, y = FHH - 10 - sB - h, kmh = speed * 0.036;
   hx.fillStyle = 'rgba(6,16,11,.9)'; rr(x, y, w, h, 0); hx.fill();
   hx.strokeStyle = '#2fe37a'; hx.lineWidth = 2; hx.shadowColor = '#2fe37a'; hx.shadowBlur = 8; rr(x, y, w, h, 0); hx.stroke(); hx.shadowBlur = 0;
-  const N = 20, lit = kmh / 120 * N, sw = (w - 20 * U) / N;
+  const N = 20, lit = kmh / 80 * N, sw = (w - 20 * U) / N;
   for (let i = 0; i < N; i++) {
     const t = i / (N - 1), bh = (7 + 9 * t) * U, bx = x + 10 * U + i * sw, by = y + 9 * U + (1 - t) * 9 * U;
-    hx.fillStyle = i < lit ? (i >= 16 ? '#ff4d4d' : '#39f08a') : (i >= 16 ? '#3a1515' : '#12301f');
+    hx.fillStyle = i < lit ? (i >= 15 ? '#ff4d4d' : '#39f08a') : (i >= 15 ? '#3a1515' : '#12301f');
     hx.fillRect(bx, by, sw - 1.5 * U, bh);
   }
   hx.fillStyle = '#39f08a'; hx.textBaseline = 'alphabetic'; hx.textAlign = 'right';
@@ -1662,7 +1664,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
