@@ -134,6 +134,18 @@
   .btn { display:block; width:100%; margin-top:14px; padding:16px; border:0; border-radius:14px; background:var(--yel);
     color:#111; font-size:18px; font-weight:900; letter-spacing:.02em; touch-action:manipulation; }
   .btn:active { transform:scale(.98); filter:brightness(.92); }
+  .btn2 { display:block; width:100%; margin-top:10px; padding:11px; border:2px solid #ffd100 !important; background:#17181c; color:#ffd100;
+    font-size:14px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; touch-action:manipulation; }
+  .row2 { display:flex; gap:8px; } .row2 .btn2 { flex:1; }
+  .badge { display:inline-block; padding:3px 9px; font-weight:900; font-size:12px; color:#111; margin-left:6px; text-transform:uppercase; }
+  .shop { margin:10px 0; } .shop div { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.1); }
+  .shop span { flex:1; font-size:13px; line-height:1.25; } .shop span b { display:block; font-size:14px; color:#fff; } .shop span i { font-style:normal; color:#ffd100; letter-spacing:2px; }
+  .shop button { flex:none; min-width:92px; padding:9px 6px; border:2px solid #000; background:#ffd100; color:#111; font-weight:800; font-size:13px; box-shadow:3px 3px 0 #000; }
+  .shop button:disabled { background:#4a4c55; color:#9a9da6; box-shadow:none; }
+  .coupon { border:2px dashed #ffd100; padding:10px; margin:10px 0; text-align:center; } .coupon b { display:block; font-size:22px; color:#ffd100; letter-spacing:.08em; }
+  .coupon small { display:block; font-size:11px; color:#ff8a8d; margin-top:4px; }
+  #tBonus { font-size:8.5px; font-weight:800; margin-top:4px; color:#ffd100; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 1px #000; }
+  #tBonus.ok { color:#7dffb0; } #tBonus.no { color:#8a8f98; text-decoration:line-through; }
   .best { font-size:12px; color:#8e919a; text-align:center; margin-top:12px; }
   @media (max-height:460px) { .card { max-width:560px; } .card .btn { position:sticky; bottom:0; padding:12px; } .oclock { font-size:32px; margin:6px 0 0; } dl { gap:3px 12px; font-size:13px; margin:8px 0; } h2 { font-size:19px; margin:6px 0 2px; }
     .card { padding:14px 18px; } h1 { font-size:26px; } ul.how li { padding:4px 0; font-size:13px; } p { font-size:13px; margin:5px 0; } }
@@ -146,10 +158,11 @@
 
 <div id="hud">
   <div id="hl">
-    <div class="av">🛵</div>
+    <div class="av" id="av">🛵</div>
     <div class="bars">
       <div class="hb red"><i id="bFood"></i><span id="tFood">PEDIDO 100%</span></div>
       <div class="hb grn"><i id="bRoute"></i><span id="tRoute">ROTA 0%</span></div>
+      <div id="tBonus"></div>
     </div>
   </div>
   <div id="hc"><small id="tLbl">ENTREGA EM ATÉ 28 MIN</small><b id="tTime">00:00</b><span id="tDist">DISTÂNCIA: 0,00 km</span><span id="tDest"></span><span id="tTip"></span></div>
@@ -308,6 +321,30 @@ const CANCEL = 15 * 60 / TS;                     // mais de 15 min de atraso: pe
 const fmtClock = t => { const g = Math.ceil(Math.abs(t) * TS - (t < 0 ? 1e-6 : 0)); return (t < 0 ? '+' : '') + String(Math.floor(g / 60)).padStart(2, '0') + ':' + String(g % 60).padStart(2, '0'); };
 const lateDisc = t => t >= 0 ? 0 : Math.min(0.6, 0.1 + 0.05 * Math.floor(-t * TS / 60));   // desconto dado ao cliente pelo atraso
 let prep = null;                                 // conferência do pedido na loja
+// ---- premiação: sequência no prazo, categoria, loja, missão bônus e cupons
+const STREAK_M = [1, 1.2, 1.5, 2];               // multiplicador da corrida conforme entregas seguidas no prazo
+const TIERS = [{ n:'Bronze', v:0, c:'#cd7f32' }, { n:'Prata', v:150, c:'#c9d2d8' }, { n:'Ouro', v:500, c:'#ffcf33' }, { n:'Diamante', v:1500, c:'#5ee6ff' }];
+const UPG = [{ id:'bau', n:'Baú térmico', d:'−15% de dano no pedido por nível' }, { id:'freio', n:'Freio a disco', d:'+20% de frenagem por nível' },
+  { id:'pneu', n:'Pneu reforçado', d:'buraco tira menos pedido e velocidade' }, { id:'motor', n:'Motor preparado', d:'+5 km/h e mais arrancada por nível' }];
+const UPG_COST = [30, 70, 150];
+const BONUS = [{ id:'nohit', t:'Termine a fase sem bater', s:'sem bater', v:6 }, { id:'wheelie', t:'Empine por 5 s no total', s:'empinar 5 s', v:5 },
+  { id:'fast', t:'Faça cada entrega em até 15 min', s:'entregas em 15 min', v:7 }, { id:'top', t:'Fique 8 s acima de 90 km/h', s:'8 s a 90+ km/h', v:5 }];
+// Cupons: troque esta lista pelos códigos reais fornecidos pela marca. "need" = entregas seguidas no prazo num mesmo turno.
+// Itens com demo:true aparecem marcados como demonstração, sem valor real.
+const COUPONS = [{ id:'demo-seq5', need:5, code:'DEMO-28MIN', desc:'5 entregas seguidas no prazo', demo:true }];
+let prof = { life:0, wallet:0, upg:{ bau:0, freio:0, pneu:0, motor:0 }, coupons:[] };
+try { const pj = JSON.parse(localStorage.getItem('correPaulistaPerfil') || 'null'); if (pj && pj.upg) prof = Object.assign(prof, pj, { upg: Object.assign(prof.upg, pj.upg) }); } catch (e) {}
+const saveProf = () => { try { localStorage.setItem('correPaulistaPerfil', JSON.stringify(prof)); } catch (e) {} };
+const tierIdx = () => { let i = 0; TIERS.forEach((t, j) => { if (prof.life >= t.v) i = j; }); return i; };
+let streak = 0, bestStreak = 0, bonus = BONUS[0], bHits = 0, bWheel = 0, bTop = 0, bFast = true, tierStart = 0, newCoupons = [];
+function credit(v) { money += v; prof.wallet += v; prof.life += v; saveProf(); }
+function bonusState() {              // 1 = cumprida, 0 = em andamento, -1 = perdida
+  if (bonus.id === 'nohit') return bHits ? -1 : (state === 'result' ? 1 : 0);
+  if (bonus.id === 'wheelie') return bWheel >= 5 ? 1 : 0;
+  if (bonus.id === 'top') return bTop >= 8 ? 1 : 0;
+  return bFast ? (state === 'result' ? 1 : 0) : -1;
+}
+function newTurn() { level = START_LEVEL - 1; money = 0; delivered = 0; streak = 0; bestStreak = 0; nextOffer(); }
 const ZONE_BACK = 1500, ZONE_FWD = 600, STOP_V = 560;   // zona de entrega (cm) e velocidade máxima para entregar (20 km/h)
 const nextStop = () => stops[Math.min(stopIdx, stops.length - 1)];
 let wheelie = 0, wHold = 0, wCool = 0, wOn = false, stunt = 0, stuntT = 0;   // empinada
@@ -343,6 +380,7 @@ function newPed(z, x, vx) {
 
 function buildLevel(lv) {
   setSong(lv - 1);
+  bonus = pick(BONUS); bHits = 0; bWheel = 0; bTop = 0; bFast = true; tierStart = tierIdx(); newCoupons = [];
   phase = makePhase(lv); oi = 0; order = phase.list[0]; doneList = [];
   pal = PAL[(lv - 1) % PAL.length];
   finishZ = START + phase.total * 100;
@@ -592,7 +630,34 @@ function toggleFull() {
     const ex = document.exitFullscreen || document.webkitExitFullscreen; if (ex) { try { ex.call(document); } catch (e) {} }
   } else goFull();
 }
-function show(html, onGo) {
+let curScreen = null;                 // tela principal atual, para voltar da loja e dos cupons
+const backScreen = () => { if (curScreen.regen) curScreen.regen(); else show(curScreen.html, curScreen.onGo); };
+card.addEventListener('click', e => {
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  initAudio(); const act = a.dataset.act;
+  if (act === 'shop') showShop(); else if (act === 'coupons') showCoupons();
+  else if (act.startsWith('buy:')) {
+    const id = act.slice(4), lv = prof.upg[id], cost = UPG_COST[lv];
+    if (lv < 3 && prof.wallet >= cost) { prof.wallet -= cost; prof.upg[id]++; saveProf(); beep(990, 0.08, 'square', 0.07); beep(1320, 0.12, 'square', 0.07, 0.08); showShop(); }
+  }
+});
+function showShop() {
+  let h = '<span class="tag">Loja de melhorias</span><h2>Carteira: ' + brl(prof.wallet) + '</h2><p>O que você ganha nas entregas fica na carteira, mesmo entre turnos.</p><div class="shop">';
+  UPG.forEach(u => { const lv = prof.upg[u.id], cost = UPG_COST[lv];
+    h += '<div><span><b>' + u.n + ' <i>' + '●'.repeat(lv) + '○'.repeat(3 - lv) + '</i></b>' + u.d + '</span>' +
+      (lv >= 3 ? '<button disabled>MÁXIMO</button>' : '<button data-act="buy:' + u.id + '"' + (prof.wallet < cost ? ' disabled' : '') + '>' + brl(cost) + '</button>') + '</div>'; });
+  show(h + '</div><button class="btn">VOLTAR</button>', backScreen, true);
+}
+function couponHtml(c) {
+  return '<div class="coupon">' + c.desc + '<b>' + c.code + '</b>' + (c.demo ? '<small>DEMONSTRAÇÃO: código de exemplo, sem valor real</small>' : '') + '</div>';
+}
+function showCoupons() {
+  let h = '<span class="tag">Cupons</span><h2>Seus cupons</h2>';
+  COUPONS.forEach(c => { h += prof.coupons.includes(c.id) ? couponHtml(c) : '<div class="coupon" style="border-color:#555;color:#8e919a">🔒 ' + c.desc + '<small style="color:#8e919a">Sequência atual do turno: ' + streak + ' de ' + c.need + '</small></div>'; });
+  show(h + '<button class="btn">VOLTAR</button>', backScreen, true);
+}
+function show(html, onGo, sub) {
+  if (!sub) curScreen = { html, onGo };
   card.innerHTML = html; ui.classList.remove('off'); ui.scrollTop = 0;
   hud.classList.remove('on'); brakeBtn.classList.remove('on'); wheelBtn.classList.remove('on'); $('prep').classList.remove('on');
   const b = card.querySelector('.btn');
@@ -604,21 +669,20 @@ function bestLine() {
 const START_LEVEL = Math.max(1, parseInt(new URLSearchParams(location.search).get('fase'), 10) || 1);   // ?fase=3 abre direto numa fase (para testes)
 function showMenu() {
   state = 'menu';
-  show('<span class="tag">Entregador Keeta</span>' +
+  const ti = tierIdx(), t = TIERS[ti], nx = TIERS[ti + 1];
+  show('<span class="tag">Entregador Keeta</span><span class="badge" style="background:' + t.c + '">' + t.n + '</span>' +
     '<h1>Corre na <em>Paulista</em></h1>' +
-    '<p>Você faz entregas de moto na região da Avenida Paulista. Chegue ao cliente antes do prazo acabar, com o pedido inteiro.</p>' +
+    '<p>Carteira: <b style="color:#ffd100">' + brl(prof.wallet) + '</b> · ' + (nx ? 'faltam ' + brl(nx.v - prof.life) + ' para ' + nx.n : 'categoria máxima') + '</p>' +
     '<ul class="how">' +
-    '<li><span>👆</span>Toque e segure no lado esquerdo ou direito da tela para virar</li>' +
-    '<li><span>🛑</span>Botão FREIO (ou os dois lados ao mesmo tempo) para frear</li>' +
-    '<li><span>🚗</span>Desvie de carros, ônibus, pedestres e buracos</li>' +
     '<li><span>⏱️</span>Cada entrega tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
-    '<li><span>🙋</span>Na loja e no cliente, freie e pare na área amarela junto à calçada; na loja, toque nos itens para conferir</li>' +
-    '<li><span>🎁</span>Em até 20 min o cliente dá caixinha; passou de 28, ele ganha desconto e você recebe menos</li>' +
-    '<li><span>⚠️</span>Dá para ultrapassar pela contramão, mas os carros vêm de frente</li>' +
-    '<li><span>🤘</span>EMPINA: segure para dar grau e ganhar bônus; virar fica difícil e, se passar do tempo ou bater, você cai</li>' +
-    '<li><span>↪️</span>Nas curvas a moto é jogada para fora: vire para dentro ou freie</li>' +
+    '<li><span>👆</span>Toque no lado esquerdo ou direito para virar; FREIO para frear; EMPINA para dar grau</li>' +
+    '<li><span>🙋</span>Na loja e no cliente, pare na área amarela junto à calçada</li>' +
+    '<li><span>🔥</span>Entregas seguidas no prazo multiplicam a corrida: 1,2x, 1,5x e 2x. Atrasou, zera</li>' +
+    '<li><span>🎁</span>Em até 20 min tem caixinha; passou de 28, o cliente ganha desconto</li>' +
     '</ul>' +
-    '<button class="btn">COMEÇAR TURNO</button>' + bestLine(), () => { level = START_LEVEL - 1; money = 0; delivered = 0; nextOffer(); });
+    '<button class="btn">COMEÇAR TURNO</button>' +
+    '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>' + bestLine(), newTurn);
+  curScreen.regen = showMenu;
 }
 function nextOffer() {
   level++; buildLevel(level); state = 'offer';               // o pedido entrou: o relógio já corre nesta tela
@@ -632,6 +696,8 @@ function nextOffer() {
     '<dt>Circuito</dt><dd>' + circuit.name + ' · ' + circuit.desc + '</dd>' +
     '<dt>Distância</dt><dd>' + order.dist + ' m' + (n > 1 ? ' por entrega' : '') + '</dd>' +
     '<dt>Caixinha</dt><dd>entregando em até 20 min</dd>' +
+    '<dt>Sequência no prazo</dt><dd>' + streak + ' · corrida ' + String(STREAK_M[Math.min(streak, 3)]).replace('.', ',') + 'x</dd>' +
+    '<dt>★ Missão bônus</dt><dd>' + bonus.t + ' (+' + brl(bonus.v) + ')</dd>' +
     '<dt>Valor da corrida</dt><dd class="big">' + brl(order.pay) + (n > 1 ? ' cada' : '') + '</dd></dl>' +
     '<button class="btn">ACEITAR PEDIDO</button>', startPlay);
 }
@@ -644,31 +710,41 @@ function startPlay() {
   last = performance.now();
 }
 function closeDelivery() {             // fecha a conta de uma entrega no momento em que o cliente recebe
-  const d = lateDisc(timeLeft), tip = timeLeft >= tipLimit ? 4 + level : 0, bonusT = Math.max(0, timeLeft) * 0.12;
-  const earn = (order.pay * (1 - d) + bonusT) * (0.5 + 0.5 * food / 100) + tip;
-  doneList.push({ rest: order.rest, took: fmtClock(LIMIT - timeLeft), late: timeLeft < 0, d, tip, earn, food: Math.round(food) });
-  money += earn; delivered++;
+  const onTime = timeLeft >= 0, d = lateDisc(timeLeft), tip = timeLeft >= tipLimit ? 4 + level : 0, bonusT = Math.max(0, timeLeft) * 0.12;
+  const m = onTime ? STREAK_M[Math.min(streak, 3)] : 1, tb = 1 + 0.05 * tierIdx();
+  const earn = (order.pay * (1 - d) * m + bonusT) * (0.5 + 0.5 * food / 100) * tb + tip;
+  streak = onTime ? streak + 1 : 0; bestStreak = Math.max(bestStreak, streak);
+  if ((LIMIT - timeLeft) * TS > 15 * 60) bFast = false;
+  COUPONS.forEach(c => { if (streak >= c.need && !prof.coupons.includes(c.id)) { prof.coupons.push(c.id); newCoupons.push(c); } });
+  doneList.push({ rest: order.rest, took: fmtClock(LIMIT - timeLeft), late: !onTime, d, m, tip, earn, pay: order.pay, food: Math.round(food) });
+  delivered++; credit(earn);
 }
 function finishDelivery() {            // fim da fase: resumo de todas as entregas
   state = 'result';
-  money += stunt;
-  const anyLate = doneList.some(x => x.late), tips = doneList.reduce((a, x) => a + x.tip, 0), total = doneList.reduce((a, x) => a + x.earn, 0) + stunt;
+  const bOk = bonusState() === 1, bVal = bOk ? bonus.v : 0;
+  credit(stunt + bVal);
+  const anyLate = doneList.some(x => x.late), tips = doneList.reduce((a, x) => a + x.tip, 0), total = doneList.reduce((a, x) => a + x.earn, 0) + stunt + bVal;
+  const ti = tierIdx(), up = ti > tierStart;
   beep(660, 0.12, 'square', 0.08); beep(880, 0.12, 'square', 0.08, 0.13); beep(1320, 0.25, 'square', 0.08, 0.26);
   let rows = '';
   doneList.forEach((x, i) => {
-    rows += '<dt>Entrega ' + (i + 1) + ' · ' + x.took + ' de 28:00' + (x.tip ? ' 🎁' : '') + '</dt><dd>' + brl(x.earn) + '</dd>' +
-      (x.late ? '<dt>&nbsp;&nbsp;atraso: ' + Math.round(x.d * 100) + '% de desconto ao cliente</dt><dd>−' + brl(order.pay * x.d) + '</dd>' : '') +
+    rows += '<dt>Entrega ' + (i + 1) + ' · ' + x.took + ' de 28:00' + (x.tip ? ' 🎁' : '') + (x.m > 1 ? ' 🔥' + String(x.m).replace('.', ',') + 'x' : '') + '</dt><dd>' + brl(x.earn) + '</dd>' +
+      (x.late ? '<dt>&nbsp;&nbsp;atraso: ' + Math.round(x.d * 100) + '% de desconto ao cliente</dt><dd>−' + brl(x.pay * x.d) + '</dd>' : '') +
       '<dt>&nbsp;&nbsp;estado do pedido</dt><dd>' + x.food + '%</dd>';
   });
   show('<span class="tag" style="background:var(--' + (anyLate ? 'red);color:#fff' : 'ok)') + '">' + (anyLate ? 'Entregue com atraso' : 'Entregue em até 28 min') + '</span>' +
-    '<h2>' + (tips ? '🎁 Ganhou caixinha!' : anyLate ? 'Cliente ganhou desconto' : 'Pedido entregue') + '</h2>' +
-    '<p>' + (tips ? 'Caixinha para cada entrega feita em até 20 min.' : anyLate ? 'O atraso virou desconto para o cliente, tirado da sua corrida.' : 'Caixinha só para entregas em até 20 min.') + '</p>' +
+    '<h2>' + (up ? '⬆ Subiu para ' + TIERS[ti].n + '!' : tips ? '🎁 Ganhou caixinha!' : anyLate ? 'Cliente ganhou desconto' : 'Pedido entregue') + '</h2>' +
+    '<p>' + (anyLate ? 'O atraso virou desconto para o cliente e zerou sua sequência.' : 'Sequência no prazo: ' + streak + '. A próxima corrida vale ' + String(STREAK_M[Math.min(streak, 3)]).replace('.', ',') + 'x.') + '</p>' +
+    newCoupons.map(couponHtml).join('') +
     '<dl>' + rows +
     '<dt>Caixinhas</dt><dd>' + brl(tips) + '</dd>' +
+    '<dt>★ ' + bonus.t + '</dt><dd>' + (bOk ? brl(bVal) : 'não cumprida') + '</dd>' +
     '<dt>Bônus de grau</dt><dd>' + brl(stunt) + '</dd>' +
+    (ti ? '<dt>Bônus da categoria ' + TIERS[ti].n + '</dt><dd>+' + ti * 5 + '% já incluído</dd>' : '') +
     '<dt>Total da fase</dt><dd class="big">' + brl(total) + '</dd>' +
     '<dt>Ganhos do turno</dt><dd>' + brl(money) + '</dd></dl>' +
-    '<button class="btn">PRÓXIMO PEDIDO</button>', nextOffer);
+    '<button class="btn">PRÓXIMO PEDIDO</button>' +
+    '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>', nextOffer);
 }
 function gameOver(why) {
   state = 'over';
@@ -677,14 +753,19 @@ function gameOver(why) {
     best = { n: delivered, m: money }; rec = delivered > 0;
     try { localStorage.setItem('correPaulistaBest', JSON.stringify(best)); } catch (e) {}
   }
+  const ti = tierIdx(), nx = TIERS[ti + 1];
   beep(220, 0.3, 'sawtooth', 0.08); beep(160, 0.5, 'sawtooth', 0.08, 0.28);
-  show('<span class="tag" style="background:var(--red);color:#fff">Fim do turno</span>' +
+  show('<span class="tag" style="background:var(--red);color:#fff">Fim do turno</span><span class="badge" style="background:' + TIERS[ti].c + '">' + TIERS[ti].n + '</span>' +
     '<h2>' + (why === 'time' ? 'Pedido cancelado' : 'Pedido destruído') + '</h2>' +
     '<p>' + (why === 'time' ? 'Passou de 15 min de atraso e o cliente cancelou.' : 'A comida não sobreviveu ao trajeto.') + '</p>' +
     '<dl><dt>Entregas concluídas</dt><dd>' + delivered + '</dd>' +
-    '<dt>Ganhos do turno</dt><dd class="big">' + brl(money) + '</dd></dl>' +
+    '<dt>Maior sequência no prazo</dt><dd>' + bestStreak + '</dd>' +
+    '<dt>Ganhos do turno</dt><dd class="big">' + brl(money) + '</dd>' +
+    '<dt>Carteira</dt><dd>' + brl(prof.wallet) + '</dd>' +
+    '<dt>Categoria</dt><dd>' + TIERS[ti].n + (nx ? ' · faltam ' + brl(nx.v - prof.life) + ' para ' + nx.n : '') + '</dd></dl>' +
     (rec ? '<p style="color:var(--yel);font-weight:700">Novo recorde!</p>' : '') +
-    '<button class="btn">TENTAR DE NOVO</button>' + bestLine(), () => { level = 0; money = 0; delivered = 0; nextOffer(); });
+    '<button class="btn">TENTAR DE NOVO</button>' +
+    '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>' + bestLine(), newTurn);
 }
 
 /* ================= controles ================= */
@@ -764,6 +845,7 @@ function startOffer(doneN) {               // segundo pedido da fase: entra com 
 }
 function hurt(dmg, msg, big) {
   if (hurtCd > 0) return;
+  bHits++; dmg = Math.max(1, Math.round(dmg * (1 - 0.15 * prof.upg.bau)));
   if (wOn) { wOn = false; wHold = 0; wCool = 1.5; stuntT = 0; dmg += 8; msg = 'Caiu do grau! ' + msg; }
   food = Math.max(0, food - dmg); hurtCd = 0.9; shake = big ? 1 : 0.55;
   toast(msg + '  −' + dmg + '%', '#ff8a8d'); flash(); thud(big ? 0.4 : 0.22);
@@ -790,11 +872,11 @@ function update(dt) {
   bump *= Math.pow(0.002, dt);
 
   const onSide = px > 1.0;
-  const vmax = onSide ? V_CALC : VMAX;
+  const vmax = onSide ? V_CALC : VMAX + prof.upg.motor * 139;   // cada nível de motor: +5 km/h
   // empinada: precisa de velocidade, tem limite de tempo e rende bônus
   wCool = Math.max(0, wCool - dt);
   if (wOn) {
-    wHold += dt; stuntT += dt; stunt += 0.3 * dt;
+    wHold += dt; stuntT += dt; stunt += 0.3 * dt; bWheel += dt;
     if (!wantWheel || braking || speed < 500) {
       wOn = false; wHold = 0; wCool = 0.4;
       if (stuntT > 0.6) toast('Grau! +' + brl(stuntT * 0.3), '#ffd100');
@@ -806,8 +888,8 @@ function update(dt) {
   for (let i = 1; i < GEAR_KMH.length; i++) if (kmh0 >= GEAR_KMH[i]) g = i + 1;
   if (g > gear) shiftT = 0.14;                           // pequena pausa ao subir de marcha
   gear = g; shiftT = Math.max(0, shiftT - dt);
-  if (braking) speed = Math.max(0, speed - BRAKE * dt);
-  else if (speed < vmax && shiftT <= 0 && !wOn) speed = Math.min(vmax, speed + GEAR_ACC[gear - 1] * dt);
+  if (braking) speed = Math.max(0, speed - BRAKE * (1 + 0.2 * prof.upg.freio) * dt);
+  else if (speed < vmax && shiftT <= 0 && !wOn) speed = Math.min(vmax, speed + GEAR_ACC[gear - 1] * (1 + 0.08 * prof.upg.motor) * dt);
   if (speed > vmax) speed = Math.max(vmax, speed - 2600 * dt);
   if (onSide && speed > 100) bump = Math.sin(tAnim * 40) * 5;
 
@@ -817,6 +899,7 @@ function update(dt) {
   skyOff += cv0 * sp * dt * 6;
   px = clamp(px, -0.96, 1.2);
 
+  if (speed * 0.036 >= 90) bTop += dt;
   const prevFront = pos + BIKE_LEN;
   pos += speed * dt;
   let front = pos + BIKE_LEN;
@@ -863,7 +946,7 @@ function update(dt) {
       const o = arr[j];
       if (o.z <= prevFront || o.z > front) continue;
       if (o.t === 'hole' && !o.hit && Math.abs(px - o.x) < o.w / 2 / ROAD + 0.025) {
-        o.hit = true; speed *= 0.5; bump = -26; hurt(9, 'Buraco!', false);
+        o.hit = true; speed *= 0.5 + 0.15 * prof.upg.pneu; bump = -26; hurt(Math.round(9 * (1 - 0.3 * prof.upg.pneu)), 'Buraco!', false);
       } else if (o.t === 'ped' && Math.abs(px - o.x) < 0.07 && hurtCd <= 0) {
         speed = 0; hurt(22, 'Cuidado com o pedestre!', true);
       }
@@ -908,7 +991,11 @@ function updateHud() {
   const tipOn = timeLeft >= tipLimit;
   setTxt('tTip', tipOn ? '🎁 caixinha por mais ' + fmtClock(timeLeft - tipLimit) : timeLeft >= 0 ? '🎁 caixinha perdida' : 'desconto ao cliente: ' + Math.round(lateDisc(timeLeft) * 100) + '%');
   $('tTip').classList.toggle('lost', !tipOn && timeLeft >= 0); $('tTip').classList.toggle('bad', timeLeft < 0);
-  setTxt('tMoney', brl(money));
+  setTxt('tMoney', brl(money) + (streak ? ' 🔥' + streak : ''));
+  const bs = bonusState(), bp = bonus.id === 'wheelie' ? ' ' + Math.min(5, bWheel).toFixed(1).replace('.', ',') + '/5' : bonus.id === 'top' ? ' ' + Math.min(8, bTop).toFixed(1).replace('.', ',') + '/8' : '';
+  setTxt('tBonus', '★ ' + bonus.s + (bs === 1 ? ' ✓' : bp));
+  $('tBonus').className = bs === 1 ? 'ok' : bs === -1 ? 'no' : '';
+  $('av').style.borderColor = TIERS[tierIdx()].c;
   const prog = clamp((pos - START) / (finishZ - START) * 100, 0, 100);
   setTxt('tFood', 'PEDIDO ' + Math.round(food) + '%');
   setTxt('tRoute', 'ROTA ' + Math.floor(prog) + '%');
@@ -1323,7 +1410,7 @@ function drawRider() {
   // capacete amarelo
   R(-7, 150, 14, 8, 3, K);
   ctx.fillStyle = Y; ctx.beginPath(); ctx.arc(0, 166, 16.5, 0, 7); ctx.fill();
-  ctx.fillStyle = K; ctx.fillRect(-2.5, 151, 5, 31);
+  ctx.fillStyle = TIERS[tierIdx()].c; ctx.fillRect(-2.5, 151, 5, 31);   // faixa do capacete na cor da categoria
   ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.beginPath(); ctx.ellipse(-7, 173, 4, 6, 0.5, 0, 7); ctx.fill();
   // bag de entrega: corpo verde, painel amarelo de base curva, faixa refletiva e "keeta" em preto
   R(-26, 88, 52, 56, 6, G);
@@ -1497,7 +1584,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
