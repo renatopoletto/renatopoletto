@@ -214,6 +214,7 @@ const ITEMS = [['Big Mac', 'McFritas média', 'Coca-Cola 500 ml', 'McShake de ch
   ['Quarterão com Queijo', 'McFritas grande', 'Coca-Cola Zero 500 ml', 'Torta de maçã'], ['McChicken', 'Chicken McNuggets 6 un.', 'Coca-Cola 500 ml', 'McShake de morango'],
   ['Big Mac', 'Cheeseburger', 'McShake de baunilha', 'Coca-Cola 500 ml'], ['Big Tasty', 'McFritas média', 'Coca-Cola 500 ml', 'McFlurry'],
   ['Cheddar McMelt', 'Chicken McNuggets 10 un.', 'Coca-Cola Zero 500 ml', 'McShake de chocolate'], ['McLanche Feliz', 'Cheeseburger', 'McFritas pequena', 'Coca-Cola 300 ml']];
+const MNAME = '<span style="text-transform:none">McDonald\'s</span>';   // grafia da marca, sem caixa alta
 const MLOGO = '<span class="mlogo"><svg viewBox="0 0 100 100"><path d="M12 84 C12 -14 46 -14 50 62 C54 -14 88 -14 88 84" fill="none" stroke="#FFC72C" stroke-width="13"/></svg></span>';
 const SHOPS = ['PADARIA','DROGARIA','BANCO','LANCHONETE','MERCADO','FARMÁCIA','AÇAÍ','PASTELARIA','ÓTICA','PAPELARIA',
   'BARBEARIA','LOTÉRICA','RESTAURANTE','CAFÉ','SAPATARIA','HORTIFRUTI'];
@@ -693,7 +694,7 @@ function nextOffer() {
   const n = phase.list.length;
   show('<span class="tag">🔔 Novo pedido · Fase ' + level + ' · ' + pal.name + '</span>' +
     '<div class="oclock" id="oClock">' + fmtClock(timeLeft) + '</div><p class="osub">Entrega em até 28 min · o relógio já está correndo</p>' +
-    '<h2>' + MLOGO + ' ' + order.rest + '</h2><p>' + order.items.join(' · ') + '</p>' +
+    '<h2>' + MLOGO + ' ' + MNAME + '</h2><p>' + order.items.join(' · ') + '</p>' +
     '<dl><dt>1. Retirar em</dt><dd>' + order.rest + '</dd>' +
     '<dt>2. Entregar em</dt><dd>' + order.dest + '</dd>' +
     '<dt>Nesta fase</dt><dd>' + (n > 1 ? n + ' entregas, 28 min cada' : '1 entrega em 28 min') + '</dd>' +
@@ -816,7 +817,7 @@ function moveStop(c, z) {            // reposiciona uma parada (loja ou cliente)
 function startPrep() {
   prep = { t: phase.prep, ready: false, left: order.items.length };
   speed = 0; wOn = false; touches.clear();
-  $('pTitle').innerHTML = MLOGO + ' Retirada · ' + order.rest;
+  $('pTitle').innerHTML = MLOGO + ' Retirada · ' + MNAME;
   $('pStat').textContent = 'Preparando o pedido…'; $('pBar').style.width = '0%';
   const list = $('pList'); list.innerHTML = '';
   order.items.forEach(it => {
@@ -837,7 +838,7 @@ function startPrep() {
 }
 function startOffer(doneN) {               // segundo pedido da fase: entra com o relógio de 28:00 já correndo
   prep = { mode: 'offer' }; speed = 0; wOn = false; touches.clear();
-  $('pTitle').innerHTML = '🔔 Novo pedido · ' + MLOGO + ' ' + order.rest;
+  $('pTitle').innerHTML = '🔔 Novo pedido · ' + MLOGO + ' ' + MNAME;
   $('pStat').textContent = ''; $('pBar').style.width = '0%';
   const list = $('pList'); list.innerHTML = '';
   const ok = document.createElement('small'); ok.style.color = '#7dffb0'; ok.textContent = '✓ Entrega ' + doneN + ' concluída em ' + doneList[doneList.length - 1].took; list.appendChild(ok);
