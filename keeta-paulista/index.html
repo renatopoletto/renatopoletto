@@ -208,8 +208,9 @@ const CENTRI = 0.065;     // força que joga a moto para fora da curva
 const BLOCK = 8;          // segmentos por prédio (24 m)
 const BL = 1.43;          // linha de fachada (calçada de 4,5 m)
 const FH = 330;           // altura de um andar
-const LANES = [1 / 6, 0.5, 5 / 6];          // faixas do sentido do jogador (a da direita é de ônibus)
-const LANE_V = [1000, 800, 520];
+const LANES = [-5 / 6, -0.5, -1 / 6, 1 / 6, 0.5, 5 / 6];   // avenida de mão única: seis faixas no mesmo sentido (a da direita é de ônibus)
+const BUS_LANE = 5;
+const LANE_V = [1060, 1000, 930, 860, 780, 520];
 const START = 1500;
 const BIKE_LEN = 200, P_HW = 38 / ROAD;
 
@@ -497,27 +498,22 @@ function buildLevel(lv) {
   // buracos
   const holeGap = Math.max(26, 58 - 5 * lv) * 100;
   for (let z = START + 7000; z < finishZ - 2500; z += rnd(holeGap * 0.5, holeGap * 1.5)) {
-    const x = (Math.random() < 0.2 ? -1 : 1) * pick(LANES) + rnd(-0.08, 0.08);
+    const x = pick(LANES) + rnd(-0.08, 0.08);
     const k = Math.floor(z / SEG);
     if (cw[k]) continue;
     addSprite(k, { t:'hole', x, z, w:rnd(95, 150) });
   }
   // carros e ônibus no sentido do jogador
-  const gMin = Math.max(2000, 4200 - 400 * lv), gMax = Math.max(4200, 8800 - 750 * lv);
-  for (let l = 0; l < 3; l++) {
+  const gMin = Math.max(3000, 6200 - 550 * lv), gMax = Math.max(6000, 12500 - 1000 * lv);   // mais faixas, carros mais espaçados em cada uma
+  for (let l = 0; l < LANES.length; l++) {
     for (let z = START + rnd(4500, 9000); z < finishZ + 4000; z += rnd(gMin, gMax)) {
-      const bus = l === 2 && Math.random() < 0.6;
+      const bus = l === BUS_LANE && Math.random() < 0.6;
       const taxi = !bus && Math.random() < 0.15;
       cars.push({ t: bus ? 'bus' : 'car', z, zp: z, x: LANES[l] + rnd(-0.025, 0.025), v: LANE_V[l] * rnd(0.97, 1.03),
         hw: (bus ? 128 : 92) / ROAD, len: bus ? 1150 : 430, col: bus ? pick(['#2f5fa8','#8b2f3a','#3d7a52','#c9772b']) : taxi ? '#f4f4f4' : pick(CAR_COLS), taxi });
       if (bus) z += 1500;
     }
   }
-  // sentido oposto
-  for (let i = 0; i < 12 + Math.min(lv, 6); i++)
-    oncoming.push({ t:'on', z: START + 3000 + rnd(0, DRAW * SEG), x: -LANES[i % 3] + rnd(-0.02, 0.02), v: [1100, 950, 800][i % 3] * rnd(0.95, 1.05),
-      hw: 92 / ROAD, len: 430, col: pick(CAR_COLS) });
-
   stops = []; stopIdx = 0; prep = null;
   stopZ.forEach((z, i) => {
     const c = newPed(z, 1.07, 0);
@@ -529,7 +525,7 @@ function buildLevel(lv) {
   skyline = [];
   for (let x = 0; x < 1.02; ) { const w = rnd(0.02, 0.06); skyline.push({ x, w, h: rnd(0.02, 0.1) }); x += w; }
 
-  pos = START; px = LANES[1]; speed = 0; steer = 0; steerS = 0; braking = false;
+  pos = START; px = LANES[3]; speed = 0; steer = 0; steerS = 0; braking = false;
   timeLeft = LIMIT; food = 100; hurtCd = 0; shake = 0; bump = 0; gear = 1; shiftT = 0;
   wheelie = 0; wHold = 0; wCool = 0; wOn = false; stunt = 0; stuntT = 0;
 }
@@ -699,7 +695,7 @@ function showMenu() {
     '<p>Carteira: <b style="color:#ffd100">' + brl(prof.wallet) + '</b> · ' + (nx ? 'faltam ' + brl(nx.v - prof.life) + ' para ' + nx.n : 'categoria máxima') + '</p>' +
     '<ul class="how">' +
     '<li><span>⏱️</span>Cada entrega tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
-    '<li><span>👆</span>Toque no lado esquerdo ou direito para trocar de faixa; FREIO para frear</li>' +
+    '<li><span>👆</span>Avenida de mão única: toque no lado esquerdo ou direito para trocar de faixa; FREIO para frear</li>' +
     '<li><span>🚶</span>Pedestre tem preferência: a moto para sozinha na faixa</li>' +
     '<li><span>🛡</span>Entrega sem batida rende bônus de direção segura</li>' +
     '<li><span>🔥</span>Entregas seguidas no prazo multiplicam a corrida: 1,2x, 1,5x e 2x</li>' +
@@ -929,7 +925,7 @@ function update(dt) {
   const cv0 = curve[Math.floor(pos / SEG)] || 0, sp = speed / VMAX;
   px -= cv0 * CENTRI * sp * sp * dt;                     // curva empurra para fora
   skyOff += cv0 * sp * dt * 6;
-  px = clamp(px, 0.045, 0.975);                          // a moto fica na sua mão: sem contramão e sem calçada
+  px = clamp(px, -0.955, 0.975);                         // a avenida inteira é de mão única; só não sobe na calçada
 
   const prevFront = pos + BIKE_LEN;
   pos += speed * dt;
@@ -1107,8 +1103,6 @@ function drawRoad(n, k) {
   if (!cross) { q(x1, y1, w1, x2, y2, w2, 1.0, 1.03, '#dcd9d0'); q(x1, y1, w1, x2, y2, w2, -1.03, -1.0, '#dcd9d0'); }
   if (state !== 'menu') { const c = nextStop(), kz = k * SEG; if (!c.done && kz >= c.z - ZONE_BACK - SEG && kz < c.z + ZONE_FWD) q(x1, y1, w1, x2, y2, w2, 0.46, 0.995, k & 1 ? '#ffd100' : '#c79f00'); }
   if (!near) return;
-  q(x1, y1, w1, x2, y2, w2, -0.02, -0.008, '#e3b93a');
-  q(x1, y1, w1, x2, y2, w2, 0.008, 0.02, '#e3b93a');
   if (cw[k]) {
     for (let x = -0.96; x < 0.95; x += 0.15) q(x1, y1, w1, x2, y2, w2, x, x + 0.075, '#ecece8');
   } else {
@@ -1116,6 +1110,7 @@ function drawRoad(n, k) {
     if ((k & 3) < 2) {
       q(x1, y1, w1, x2, y2, w2, 0.3275, 0.3395, '#e9e9e5');
       q(x1, y1, w1, x2, y2, w2, -0.3395, -0.3275, '#e9e9e5');
+      q(x1, y1, w1, x2, y2, w2, -0.006, 0.006, '#e9e9e5');
       q(x1, y1, w1, x2, y2, w2, -0.673, -0.661, '#e9e9e5');
     }
   }
@@ -1339,8 +1334,8 @@ function drawCrack(o) {
 }
 function drawBusTxt(o) {
   const dz = o.z - camZ; if (dz < 800 || dz > 9000) return;
-  P(LANES[2] * ROAD, 0, o.z - 95); const yb = _y; P(LANES[2] * ROAD, 0, o.z + 95); const yt = _y;
-  P(LANES[2] * ROAD, 0, o.z); const hpx = yb - yt, wpx = 285 * _s;
+  P(LANES[BUS_LANE] * ROAD, 0, o.z - 95); const yb = _y; P(LANES[BUS_LANE] * ROAD, 0, o.z + 95); const yt = _y;
+  P(LANES[BUS_LANE] * ROAD, 0, o.z); const hpx = yb - yt, wpx = 285 * _s;
   if (hpx < 2.5) return;
   ctx.save(); ctx.translate(_x, (yb + yt) / 2); ctx.scale(wpx / 420, hpx / 78);
   ctx.fillStyle = 'rgba(240,240,236,.92)'; ctx.font = '900 100px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -1571,7 +1566,6 @@ function drawMinimap() {
       if (sd) hx.fillRect(xc + rw + 2, y, r * 2, sh); else hx.fillRect(xc - rw - 2 - r * 2, y, r * 2, sh);
     }
     hx.fillStyle = '#fbfaf5'; hx.fillRect(xc - rw, y, 2 * rw, sh);
-    hx.fillStyle = '#e3b93a'; hx.fillRect(xc - 0.6, y, 1.2, sh);
   }
   // rota até o destino (segue o traçado)
   const zEnd = Math.min(nextStop().z, pos + 15500);
