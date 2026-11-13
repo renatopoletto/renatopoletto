@@ -282,7 +282,7 @@ function resize() {
   hcv.width = Math.round(FW * DPR); hcv.height = Math.round(FHH * DPR); hx.setTransform(DPR, 0, 0, DPR, 0, 0);
   hx.imageSmoothingEnabled = false;
   const land = W > H;
-  const ppc = Math.min(W / 660, H / 395);              // px por cm na distância da moto
+  const ppc = Math.min(W / 660, H / 395) * 1.1;        // px por cm na distância da moto (com 10% de zoom)
   hy = H * (land ? 0.18 : 0.28);
   CAMH = Math.max(250, Math.min(620, ((land ? 0.84 : 0.74) * H - hy) / ppc));
   S = ppc * CAMD; cx = W / 2;
@@ -471,6 +471,7 @@ function buildLevel(lv) {
       const bl = blocks[s][bi], sg = s ? 1 : -1;
       if (!bl || bl.gap || bl.style === 'tun') continue;
       if ((k + (s ? 3 : 5)) % circuit.trees === 0 && bl.style !== 'masp') addSprite(k, { t:'tree', x:sg * 1.12, z:k * SEG + 150, r:rnd(0.8, 1.2) });
+      if ((k + (s ? 7 : 0)) % 14 === 4 && bl.style !== 'masp' && stopSegs.every(ss => Math.abs(k - ss) > 9)) addSprite(k, { t:'mupi', x:sg * 1.15, z:k * SEG + 150, b:(Math.floor(k / 14) + s * 2) % 3 });   // rodízio Keeta, McDonald's, Coca-Cola
       if (bl.style === 'park') for (let i = 0; i < 2; i++) addSprite(k, { t:'tree', x:sg * rnd(1.3, 3.6), z:k * SEG + rnd(0, SEG), r:rnd(0.9, 1.5) });
       if (k % 10 === (s ? 0 : 5)) addSprite(k, { t:'pole', x:sg * 1.05, z:k * SEG + 150, sg });
       const np = Math.random() < 0.55 ? rint(1, 3) : 0;
@@ -1478,8 +1479,39 @@ function drawCust(o) {               // cliente esperando na calçada, com marca
   ctx.beginPath(); ctx.moveTo(x, my + r * 1.9); ctx.lineTo(x - r * 0.8, my + r * 0.55); ctx.arc(x, my, r, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
   if (r > 6) { ctx.fillStyle = loja && !o.done ? '#ffc72c' : '#111'; ctx.font = '900 ' + r * 1.2 + 'px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.done ? '✓' : String(o.n), x, my + r * 0.08); }
 }
+const mupiGlow = [];                 // painéis redesenhados acesos à noite
+function drawMupi(o, lit) {          // painel de mobiliário urbano: moldura escura, face iluminada e pedestal
+  if (o.z - camZ < 70) return;
+  P(o.x * ROAD, 0, o.z); const x = _x, y = _y, s = _s, w = 150 * s, h = 220 * s;
+  if (w < 3 || offX(x)) return;
+  if (pal.night && !lit) mupiGlow.push(o);
+  const top = y - 62 * s - h;
+  if (!lit) {
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(x, y, 60 * s, 14 * s, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#15171a'; ctx.fillRect(x - 42 * s, y - 8 * s, 84 * s, 8 * s); ctx.fillRect(x - 8 * s, y - 62 * s, 16 * s, 56 * s);
+    ctx.fillRect(x - w / 2 - 9 * s, top - 9 * s, w + 18 * s, h + 18 * s);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (o.b === 0) {                   // Keeta
+    ctx.fillStyle = '#f5d90a'; ctx.fillRect(x - w / 2, top, w, h);
+    ctx.fillStyle = '#10a880'; ctx.fillRect(x - w / 2, top + h * 0.8, w, h * 0.2);
+    ctx.fillStyle = '#111';
+    ctx.font = '900 ' + w * 0.33 + 'px Helvetica,Arial,sans-serif'; ctx.fillText('keeta', x, top + h * 0.3, w * 0.92);
+    ctx.font = '900 ' + w * 0.2 + 'px Helvetica,Arial,sans-serif'; ctx.fillText('em 28 min', x, top + h * 0.58, w * 0.9);
+  } else if (o.b === 1) {            // McDonald's
+    ctx.fillStyle = '#da291c'; ctx.fillRect(x - w / 2, top, w, h);
+    arches(x, top + h * 0.62, w * 0.7, h * 0.36);
+    ctx.fillStyle = '#fff'; ctx.font = '700 ' + w * 0.13 + 'px Helvetica,Arial,sans-serif'; ctx.fillText("McDonald's", x, top + h * 0.82, w * 0.9);
+  } else {                           // Coca-Cola
+    ctx.fillStyle = '#e41e2b'; ctx.fillRect(x - w / 2, top, w, h);
+    ctx.fillStyle = '#fff'; ctx.font = 'italic 900 ' + w * 0.2 + 'px Georgia,"Times New Roman",serif'; ctx.fillText('Coca-Cola', x, top + h * 0.4, w * 0.92);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, w * 0.045); ctx.beginPath();
+    ctx.moveTo(x - w * 0.42, top + h * 0.62); ctx.bezierCurveTo(x - w * 0.15, top + h * 0.52, x + w * 0.1, top + h * 0.74, x + w * 0.42, top + h * 0.6); ctx.stroke();
+  }
+}
 function spriteAt(o) {
   switch (o.t) {
+    case 'mupi': drawMupi(o, false); break;
     case 'cust': drawCust(o); break;
     case 'me': drawRider(); break;
     case 'car': case 'on': drawCar(o); break;
@@ -1600,7 +1632,7 @@ function render() {
     if (b.length) { if (b.length > 1) b.sort(byFar); for (let i = 0; i < b.length; i++) spriteAt(b[i]); }
   }
   if (pal.overlay) { ctx.fillStyle = pal.overlay; ctx.fillRect(0, 0, W, H); }
-  if (pal.night) { drawLights(); riderPass = 1; drawRider(); riderPass = 0; }   // o entregador fica por cima do facho do próprio farol
+  if (pal.night) { for (let i = 0; i < mupiGlow.length; i++) drawMupi(mupiGlow[i], true); mupiGlow.length = 0; drawLights(); riderPass = 1; drawRider(); riderPass = 0; }   // o entregador fica por cima do facho do próprio farol
   else { lights.length = 0; beams.length = 0; }
   to8bit();
   hx.clearRect(0, 0, FW, FHH);
