@@ -131,14 +131,17 @@ const SEG = 300;          // comprimento de um segmento de pista (3 m)
 const ROAD = 1050;        // meia largura da rua: 3 faixas de 3,5 m por sentido
 const DRAW = 140;         // segmentos desenhados (420 m)
 const CAMD = 520;         // distância da câmera até a moto
-const VMAX = 1944;        // 70 km/h
+const VMAX = 2778;        // 100 km/h
 const V_CALC = 420;       // 15 km/h na calçada
-const ACCEL = 430, BRAKE = 1600;
+const BRAKE = 1700;
+const GEAR_KMH = [0, 22, 42, 62, 82];              // troca de marcha (km/h)
+const GEAR_ACC = [640, 540, 450, 350, 250];        // aceleração por marcha (cm/s²)
+const CENTRI = 0.065;     // força que joga a moto para fora da curva
 const BLOCK = 8;          // segmentos por prédio (24 m)
 const BL = 1.43;          // linha de fachada (calçada de 4,5 m)
 const FH = 330;           // altura de um andar
 const LANES = [1 / 6, 0.5, 5 / 6];          // faixas do sentido do jogador (a da direita é de ônibus)
-const LANE_V = [1100, 860, 520];
+const LANE_V = [1400, 1100, 700];
 const START = 1500;
 const BIKE_LEN = 200, P_HW = 38 / ROAD;
 
@@ -166,6 +169,13 @@ const CAR_COLS = ['#c9ccd1','#f4f4f4','#2a2c31','#a3242b','#6d737d','#2c4c7c','#
 const BLD_COLS = ['#b9b1a2','#c9bfa8','#a7a59d','#d0c2a6','#b59f8a','#9ea5a8','#c7b9a0','#aab0b3','#bfa98f'];
 const SHIRTS = ['#e94f37','#3f88c5','#44af69','#f6ae2d','#8e5572','#f2f2f2','#33658a','#d7263d','#222'];
 const SKINS = ['#f1c9a5','#d9a57b','#a8724c','#7a4e2d','#5b3a22'];
+const CIRCUITS = [
+  { name:'Av. Paulista', desc:'retas longas, curvas leves', c:[2, 5], st:[28, 55], cl:[20, 40], low:0.25, alt:false },
+  { name:'Rua Augusta', desc:'curvas em S', c:[5, 10], st:[8, 20], cl:[16, 30], low:0.85, alt:true },
+  { name:'Rua da Consolação', desc:'curvas longas e rápidas', c:[4, 8], st:[14, 30], cl:[34, 60], low:0.55, alt:false },
+  { name:'Alameda Santos', desc:'curvas fechadas', c:[8, 14], st:[12, 26], cl:[10, 20], low:0.6, alt:false },
+  { name:'Av. Brig. Luís Antônio', desc:'curvas fortes em sequência', c:[7, 12], st:[6, 16], cl:[18, 34], low:0.7, alt:true }
+];
 const MAPC = ['#cfe3b4','#f2c7c0','#f6dfae','#c9daf0','#e3d3ee'];
 
 /* ================= canvas / câmera ================= */
@@ -207,7 +217,9 @@ function shade(hex, f) {
 let state = 'menu';          // menu | offer | play | result | over
 let level = 0, money = 0, delivered = 0;
 let order = null, pal = PAL[0];
-let nseg = 0, cw = null, segSprites = null, blocks = [[], []];
+let nseg = 0, cw = null, curve = null, circuit = CIRCUITS[0], segSprites = null, blocks = [[], []];
+let gear = 1, shiftT = 0, skyOff = 0;
+const CX = new Float32Array(DRAW + 2);
 let cars = [], peds = [], oncoming = [];
 let finishZ = 0;
 let pos = START, px = 0.5, speed = 0, steer = 0, steerS = 0, braking = false;
@@ -222,11 +234,11 @@ try { const b = JSON.parse(localStorage.getItem('correPaulistaBest') || 'null');
 
 /* ================= geração da fase ================= */
 function makeOrder(lv) {
-  const dist = Math.min(750 + 150 * lv, 1650);
-  const avg = Math.min(10.5 + 0.5 * lv, 14);            // m/s exigidos em média
+  const dist = 1000;                                     // mesma distância em todas as fases: o prazo é que encolhe
+  const avg = Math.min(12.5 * Math.pow(1.07, lv - 1), 19); // velocidade média exigida (m/s)
   const i = (lv - 1) % RESTS.length;
   return { rest: RESTS[i], items: ITEMS[i], dest: DESTS[(lv * 3 + 1) % DESTS.length], dist,
-    time: Math.ceil(dist / avg) + 6, pay: 6 + dist / 180 };
+    time: Math.round(dist / avg), pay: 8 + lv * 1.5 };
 }
 function addSprite(k, o) { if (k >= 0 && k < nseg + 2) (segSprites[k] || (segSprites[k] = [])).push(o); }
 function newPed(z, x, vx) {
@@ -241,17 +253,25 @@ function buildLevel(lv) {
   nseg = finSeg + DRAW + 30;
   cw = new Uint8Array(nseg + 2);
   segSprites = new Array(nseg + 2);
+  circuit = CIRCUITS[(lv - 1) % CIRCUITS.length];
+  curve = new Float32Array(nseg + DRAW + 4);
+  for (let k = 14, dir = Math.random() < 0.5 ? -1 : 1; k < nseg; ) {
+    k += rint(circuit.st[0], circuit.st[1]);
+    const len = rint(circuit.cl[0], circuit.cl[1]), c = rnd(circuit.c[0], circuit.c[1]) * dir;
+    for (let i = 0; i < len && k + i < nseg; i++) curve[k + i] = c * Math.sin(Math.PI * (i + 0.5) / len);
+    k += len; dir = circuit.alt ? -dir : (Math.random() < 0.5 ? -1 : 1);
+  }
   cars = []; peds = []; oncoming = [];
 
   // quarteirões
   const nb = Math.ceil((nseg + 2) / BLOCK);
   blocks = [[], []];
   let nextCross = rint(4, 6), st = rint(0, STREETS.length - 1);
-  const maspAt = Math.floor(finSeg / BLOCK * 0.45);
+  const maspAt = circuit.name === 'Av. Paulista' ? Math.floor(finSeg / BLOCK * 0.45) : -9;
   for (let b = 0; b < nb; b++) {
     const gap = b === nextCross && Math.abs(b * BLOCK - finSeg) > 12 && b !== maspAt && b !== maspAt + 1;
     for (let s = 0; s < 2; s++) {
-      const col = pick(BLD_COLS), low = Math.random() < 0.72;
+      const col = pick(BLD_COLS), low = Math.random() < circuit.low;
       const masp = s === 1 && maspAt >= 2 && (b === maspAt || b === maspAt + 1);
       const bl = { gap, low, h: gap ? 0 : (low ? rint(2, 4) : rint(6, 18)) * FH + 120, col, style:'b',
         glass: !low && Math.random() < 0.45, awn: pick(AWN), shop: pick(SHOPS), sc: pick(SIGN_COLS) };
@@ -331,7 +351,7 @@ function buildLevel(lv) {
   for (let x = 0; x < 1.02; ) { const w = rnd(0.02, 0.06); skyline.push({ x, w, h: rnd(0.02, 0.1) }); x += w; }
 
   pos = START; px = LANES[1]; speed = 0; steer = 0; steerS = 0; braking = false;
-  timeLeft = order.time; food = 100; hurtCd = 0; shake = 0; bump = 0;
+  timeLeft = order.time; food = 100; hurtCd = 0; shake = 0; bump = 0; gear = 1; shiftT = 0;
 }
 
 /* ================= áudio ================= */
@@ -392,16 +412,20 @@ function showMenu() {
     '<li><span>🛑</span>Botão FREIO (ou os dois lados ao mesmo tempo) para frear</li>' +
     '<li><span>🚗</span>Desvie de carros, ônibus, pedestres e buracos</li>' +
     '<li><span>⚠️</span>Dá para ultrapassar pela contramão, mas os carros vêm de frente</li>' +
+    '<li><span>↪️</span>Nas curvas a moto é jogada para fora: vire para dentro ou freie</li>' +
     '</ul>' +
     '<button class="btn">COMEÇAR TURNO</button>' + bestLine(), () => { level = 0; money = 0; delivered = 0; nextOffer(); });
 }
 function nextOffer() {
   level++; buildLevel(level); state = 'offer';
-  show('<span class="tag">Novo pedido · ' + pal.name + '</span>' +
+  const prevT = level > 1 ? makeOrder(level - 1).time : 0;
+  show('<span class="tag">Fase ' + level + ' · ' + pal.name + '</span>' +
     '<h2>' + order.rest + '</h2><p>' + order.items + '</p>' +
-    '<dl><dt>Entregar em</dt><dd>' + order.dest + '</dd>' +
+    '<dl><dt>Circuito</dt><dd>' + circuit.name + '</dd>' +
+    '<dt>Traçado</dt><dd>' + circuit.desc + '</dd>' +
+    '<dt>Entregar em</dt><dd>' + order.dest + '</dd>' +
     '<dt>Distância</dt><dd>' + order.dist + ' m</dd>' +
-    '<dt>Prazo</dt><dd>' + order.time + ' s</dd>' +
+    '<dt>Prazo</dt><dd>' + order.time + ' s' + (prevT > order.time ? ' (−' + (prevT - order.time) + ' s)' : '') + '</dd>' +
     '<dt>Valor da corrida</dt><dd class="big">' + brl(order.pay) + '</dd></dl>' +
     '<button class="btn">ACEITAR E SAIR</button>', startPlay);
 }
@@ -489,12 +513,19 @@ function update(dt) {
 
   const onSide = px > 1.0;
   const vmax = onSide ? V_CALC : VMAX;
+  let g = 1; const kmh0 = speed * 0.036;
+  for (let i = 1; i < GEAR_KMH.length; i++) if (kmh0 >= GEAR_KMH[i]) g = i + 1;
+  if (g > gear) shiftT = 0.14;                           // pequena pausa ao subir de marcha
+  gear = g; shiftT = Math.max(0, shiftT - dt);
   if (braking) speed = Math.max(0, speed - BRAKE * dt);
-  else if (speed < vmax) speed = Math.min(vmax, speed + ACCEL * dt);
+  else if (speed < vmax && shiftT <= 0) speed = Math.min(vmax, speed + GEAR_ACC[gear - 1] * dt);
   if (speed > vmax) speed = Math.max(vmax, speed - 2600 * dt);
   if (onSide && speed > 100) bump = Math.sin(tAnim * 40) * 5;
 
   px += steerS * dt * 1.05 * (0.3 + 0.7 * Math.min(1, speed / 800));
+  const cv0 = curve[Math.floor(pos / SEG)] || 0, sp = speed / VMAX;
+  px -= cv0 * CENTRI * sp * sp * dt;                     // curva empurra para fora
+  skyOff += cv0 * sp * dt * 6;
   px = clamp(px, -0.96, 1.2);
 
   const prevFront = pos + BIKE_LEN;
@@ -553,7 +584,8 @@ function update(dt) {
   timeLeft -= dt;
   if (engGain) {
     engGain.gain.value = muted ? 0 : 0.035;
-    eng.frequency.value = 48 + speed / VMAX * 130;
+    const lo = GEAR_KMH[gear - 1], hi = gear < 5 ? GEAR_KMH[gear] : 100;
+    eng.frequency.value = 62 + gear * 9 + clamp((speed * 0.036 - lo) / (hi - lo), 0, 1) * 70;
   }
   if (pos >= finishZ) { timeLeft = Math.max(0, timeLeft); if (engGain) engGain.gain.value = 0; finishDelivery(); return; }
   if (food <= 0) { if (engGain) engGain.gain.value = 0; gameOver('food'); return; }
@@ -578,18 +610,25 @@ function updateHud() {
 
 /* ================= projeção ================= */
 let _x = 0, _y = 0, _s = 0;
+function curveOff(z) {             // deslocamento lateral da pista (cm) na distância z, visto da câmera
+  const f = z / SEG - base; let i = Math.floor(f);
+  if (i < 0) return CX[0]; if (i >= DRAW) return CX[DRAW];
+  return CX[i] + (CX[i + 1] - CX[i]) * (f - i);
+}
 function P(xw, yw, z) {            // mundo (cm) -> tela
   let dz = z - camZ; if (dz < 50) dz = 50;
-  _s = S / dz; _x = cx + (xw - camX) * _s + shakeX; _y = hy - (yw - camY) * _s;
+  _s = S / dz; _x = cx + (xw + curveOff(z) - camX) * _s + shakeX; _y = hy - (yw - camY) * _s;
 }
 function project() {
   camZ = pos - CAMD; base = Math.floor(camZ / SEG);
-  camX = clamp(px, -0.75, 0.95) * ROAD * 0.92; camY = CAMH + bump * 0.4;
+  let x = 0, dx = -(camZ / SEG - base) * (curve[Math.max(0, base)] || 0);
+  for (let n = 0; n <= DRAW; n++) { CX[n] = x; x += dx; dx += curve[Math.max(0, base + n)] || 0; }
+  camX = clamp(px, -0.75, 0.95) * ROAD * 0.92 + curveOff(pos); camY = CAMH + bump * 0.4;
   shakeX = shake > 0 ? (Math.random() - 0.5) * 16 * shake : 0;
   for (let n = 0; n <= DRAW; n++) {
     let dz = (base + n) * SEG - camZ; if (dz < 50) dz = 50;
     const sc = S / dz;
-    PS[n] = sc; PX[n] = cx - camX * sc + shakeX; PY[n] = hy + camY * sc; PW[n] = ROAD * sc;
+    PS[n] = sc; PX[n] = cx + (CX[n] - camX) * sc + shakeX; PY[n] = hy + camY * sc; PW[n] = ROAD * sc;
   }
 }
 function q(x1, y1, w1, x2, y2, w2, a, b, col) {
@@ -614,10 +653,12 @@ function drawSky() {
   ctx.fillStyle = sn[0]; ctx.globalAlpha = 0.25; ctx.beginPath(); ctx.arc(W * sn[1], H * sn[2], sr * 2, 0, 7); ctx.fill();
   ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(W * sn[1], H * sn[2], sr, 0, 7); ctx.fill();
   ctx.fillStyle = pal.haze;
-  const off = -px * 10;
+  const span = W + 40, off = -px * 10 - skyOff;
   for (let i = 0; i < skyline.length; i++) {
     const b = skyline[i], h = b.h * H;
-    ctx.fillRect(b.x * (W + 40) - 20 + off, hy - h, b.w * (W + 40) + 1, h + 4);
+    const bx = (((b.x * span + off) % span) + span) % span - 20;
+    ctx.fillRect(bx, hy - h, b.w * span + 1, h + 4);
+    if (bx + b.w * span > W + 20) ctx.fillRect(bx - span, hy - h, b.w * span + 1, h + 4);
   }
   ctx.fillStyle = '#8f8c84'; ctx.fillRect(0, hy, W, H - hy);
 }
@@ -654,7 +695,7 @@ function drawWall(n, k, side) {
   if (!b || b.gap) return;
   const o = side ? BL : -BL;
   const xn = PX[n] + o * PW[n], xf = PX[n + 1] + o * PW[n + 1], yn = PY[n], yf = PY[n + 1], sn = PS[n], sf = PS[n + 1];
-  if (side ? xf > W + 2 : xf < -2) return;
+  if (side ? Math.min(xn, xf) > W + 2 : Math.max(xn, xf) < -2) return;
   ctx.globalAlpha = clamp((DRAW - n) / 28, 0, 1);
   if (b.style === 'masp') {
     const rel = k - bi * BLOCK;
@@ -884,9 +925,12 @@ function drawRider() {
   const L = (c, lw, pts) => { ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]); ctx.stroke(); };
   const T = (txt, y, font, col, mw) => { ctx.save(); ctx.scale(1, -1); ctx.fillStyle = col; ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, 0, -y, mw); ctx.restore(); };
   // guidão e retrovisores (à frente do corpo)
-  L('#2c2e33', 5, [-41, 106, 41, 106]);
-  L('#2c2e33', 3, [-36, 106, -45, 126]); L('#2c2e33', 3, [36, 106, 45, 126]);
-  ctx.fillStyle = '#b9c4cc'; ctx.beginPath(); ctx.ellipse(-47, 130, 8, 5, 0, 0, 7); ctx.ellipse(47, 130, 8, 5, 0, 0, 7); ctx.fill();
+  L('#2c2e33', 5, [-45, 121, 45, 121]);
+  L('#2c2e33', 3, [-33, 121, -45, 142]); L('#2c2e33', 3, [33, 121, 45, 142]);
+  ctx.fillStyle = '#b9c4cc'; ctx.beginPath(); ctx.ellipse(-47, 146, 8, 5, 0, 0, 7); ctx.ellipse(47, 146, 8, 5, 0, 0, 7); ctx.fill();
+  // braços estendidos para a frente; só o dorso da luva aparece, fechado na manopla
+  L(G, 13, [-22, 141, -36, 132, -40, 124]); L(G, 13, [22, 141, 36, 132, 40, 124]);
+  R(-47, 116, 13, 10, 4, K); R(34, 116, 13, 10, 4, K);
   // roda traseira, escapamento, rabeta
   R(-7, 0, 14, 64, 6, '#111214');
   R(17, 26, 13, 16, 5, '#8d9299'); R(19, 29, 9, 10, 4, '#3a3d42');
@@ -898,10 +942,6 @@ function drawRider() {
   // pernas (calça escura) e botas
   L(PT, 15, [-13, 86, -29, 60, -27, 30]); L(PT, 15, [13, 86, 29, 60, 27, 30]);
   R(-35, 16, 16, 16, 5, K); R(19, 16, 16, 16, 5, K);
-  // braços e luvas
-  L(G, 13, [-24, 142, -37, 112]); L(G, 13, [24, 142, 37, 112]);
-  L(Y, 4, [-32, 124, -35, 117]); L(Y, 4, [32, 124, 35, 117]);
-  ctx.fillStyle = K; ctx.beginPath(); ctx.arc(-38, 108, 7.5, 0, 7); ctx.arc(38, 108, 7.5, 0, 7); ctx.fill();
   // tronco (jaqueta verde)
   R(-27, 84, 54, 70, 16, G);
   R(-27, 84, 54, 9, 4, GD);
@@ -950,42 +990,55 @@ function fillBuckets() {
 const byFar = (a, b) => b.z - a.z;
 
 /* ================= HUD no canvas: minimapa e velocímetro ================= */
+const MO = new Float32Array(100);   // deslocamento lateral do traçado em relação à moto, por segmento
 function drawMinimap() {
   const r = clamp(Math.min(W, H) * 0.15, 46, 84), mx = 10 + sL + r, my = H - 10 - sB - r;
   const k = r / 11000, kx = k * 2.2;           // 1 raio = 110 m; largura da rua ampliada 2,2x para leitura
   const py = my + r * 0.45, Yz = z => py - (z - pos) * k;
+  const ks = Math.floor(pos / SEG), k0 = ks - 25, fr = pos / SEG - ks;
+  { let x = 0, dx = -fr * (curve[ks] || 0);
+    for (let i = ks; i < k0 + 100; i++) { MO[i - k0] = x; x += dx; dx += curve[Math.max(0, i)] || 0; }
+    x = 0; dx = fr * (curve[ks] || 0);
+    for (let i = ks - 1; i >= k0; i--) { dx += curve[Math.max(0, i)] || 0; x += dx; MO[i - k0] = x; } }
+  const Xz = z => { const f = z / SEG - k0, i = clamp(Math.floor(f), 0, 98); return mx + (MO[i] + (MO[i + 1] - MO[i]) * (f - i)) * k; };
   ctx.save(); ctx.beginPath(); ctx.arc(mx, my, r, 0, 7); ctx.clip();
   ctx.fillStyle = '#e8e2d2'; ctx.fillRect(mx - r, my - r, 2 * r, 2 * r);
-  const rw = ROAD * kx, b0 = Math.max(0, Math.floor((pos - 7000) / SEG / BLOCK)), b1 = Math.floor((pos + 17000) / SEG / BLOCK);
-  for (let b = b0; b <= b1; b++) {
-    const ya = Yz(b * BLOCK * SEG), yb = Yz((b + 1) * BLOCK * SEG);
-    for (let s = 0; s < 2; s++) {
-      const bl = blocks[s][b]; if (!bl) continue;
-      if (bl.gap) { ctx.fillStyle = '#fbfaf5'; ctx.fillRect(mx - r, yb, 2 * r, ya - yb); break; }
-      ctx.fillStyle = bl.style === 'masp' ? '#e2777c' : MAPC[(b * 3 + s * 2) % MAPC.length];
-      if (s) ctx.fillRect(mx + rw + 2, yb + 0.5, r, ya - yb - 1); else ctx.fillRect(mx - rw - 2 - r, yb + 0.5, r, ya - yb - 1);
+  const rw = ROAD * kx, sh = SEG * k + 0.6;
+  for (let i = Math.max(0, k0); i < k0 + 85; i++) {
+    const xc = Xz((i + 0.5) * SEG), y = Yz((i + 1) * SEG), b = Math.floor(i / BLOCK);
+    for (let sd = 0; sd < 2; sd++) {
+      const bl = blocks[sd][b]; if (!bl) continue;
+      if (bl.gap) { ctx.fillStyle = '#fbfaf5'; ctx.fillRect(mx - r, y, 2 * r, sh); break; }
+      if (i % BLOCK === BLOCK - 1) continue;             // vão entre os lotes
+      ctx.fillStyle = bl.style === 'masp' ? '#e2777c' : MAPC[(b * 3 + sd * 2) % MAPC.length];
+      if (sd) ctx.fillRect(xc + rw + 2, y, r * 2, sh); else ctx.fillRect(xc - rw - 2 - r * 2, y, r * 2, sh);
     }
+    ctx.fillStyle = '#fbfaf5'; ctx.fillRect(xc - rw, y, 2 * rw, sh);
+    ctx.fillStyle = '#e3b93a'; ctx.fillRect(xc - 0.6, y, 1.2, sh);
   }
-  ctx.fillStyle = '#fbfaf5'; ctx.fillRect(mx - rw, my - r, 2 * rw, 2 * r);
-  ctx.fillStyle = '#e3b93a'; ctx.fillRect(mx - 0.6, my - r, 1.2, 2 * r);
-  // rota até o destino
-  const yd = Yz(finishZ), ydc = Math.max(yd, my - r + 15), dx = mx + 0.5 * ROAD * kx;
-  ctx.strokeStyle = '#2b7de9'; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(mx + px * ROAD * kx, py); ctx.lineTo(dx, Math.min(py - 6, ydc)); ctx.stroke();
+  // rota até o destino (segue o traçado)
+  const zEnd = Math.min(finishZ, pos + 15500);
+  ctx.strokeStyle = '#2b7de9'; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(mx + px * ROAD * kx, py);
+  for (let z = pos + 600; z < zEnd; z += 600) ctx.lineTo(Xz(z) + 0.5 * ROAD * kx, Yz(z));
+  ctx.stroke();
   // buracos, pedestres na pista e veículos
-  for (let kk = Math.floor(pos / SEG) - 10; kk < Math.floor(pos / SEG) + 58; kk++) {
+  for (let kk = ks - 10; kk < ks + 58; kk++) {
     const a = segSprites[kk]; if (!a) continue;
-    for (let i = 0; i < a.length; i++) if (a[i].t === 'hole' && !a[i].hit) { ctx.fillStyle = '#c4551a'; ctx.beginPath(); ctx.arc(mx + a[i].x * ROAD * kx, Yz(a[i].z), 2, 0, 7); ctx.fill(); }
+    for (let i = 0; i < a.length; i++) if (a[i].t === 'hole' && !a[i].hit) { ctx.fillStyle = '#c4551a'; ctx.beginPath(); ctx.arc(Xz(a[i].z) + a[i].x * ROAD * kx, Yz(a[i].z), 2, 0, 7); ctx.fill(); }
   }
   ctx.fillStyle = '#7a3fb3';
-  for (let i = 0; i < peds.length; i++) { const p = peds[i]; if (p.z > pos - 6000 && p.z < pos + 17000 && Math.abs(p.x) < 1) { ctx.beginPath(); ctx.arc(mx + p.x * ROAD * kx, Yz(p.z), 1.6, 0, 7); ctx.fill(); } }
-  const veh = (c, col) => { if (c.z < pos - 6500 || c.z > pos + 17000) return; ctx.fillStyle = col; ctx.fillRect(mx + c.x * ROAD * kx - 1.6, Yz(c.z + c.len), 3.2, Math.max(4, c.len * k)); };
+  for (let i = 0; i < peds.length; i++) { const p = peds[i]; if (p.z > pos - 6000 && p.z < pos + 17000 && Math.abs(p.x) < 1) { ctx.beginPath(); ctx.arc(Xz(p.z) + p.x * ROAD * kx, Yz(p.z), 1.6, 0, 7); ctx.fill(); } }
+  const veh = (c, col) => { if (c.z < pos - 6500 || c.z > pos + 17000) return; ctx.fillStyle = col; ctx.fillRect(Xz(c.z) + c.x * ROAD * kx - 1.6, Yz(c.z + c.len), 3.2, Math.max(4, c.len * k)); };
   for (let i = 0; i < cars.length; i++) veh(cars[i], cars[i].t === 'bus' ? '#2f5fa8' : '#4b4f57');
   for (let i = 0; i < oncoming.length; i++) veh(oncoming[i], '#9a9da3');
-  // pino do destino
+  // pino do destino: na posição real quando está no alcance; senão, preso à borda na direção da rota
+  let dx = Xz(zEnd) + 0.5 * ROAD * kx, dy = Yz(zEnd);
+  const ddx = dx - mx, ddy = dy - my, dd = Math.hypot(ddx, ddy), lim = r - 15;
+  if (dd > lim) { dx = mx + ddx / dd * lim; dy = my + ddy / dd * lim; }
   ctx.fillStyle = '#ffd100'; ctx.strokeStyle = '#111'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(dx, ydc + 3); ctx.lineTo(dx - 6, ydc - 6); ctx.arc(dx, ydc - 9, 7, Math.PI * 0.85, Math.PI * 0.15); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#111'; ctx.font = '900 9px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('K', dx, ydc - 8.5);
+  ctx.beginPath(); ctx.moveTo(dx, dy + 3); ctx.lineTo(dx - 6, dy - 6); ctx.arc(dx, dy - 9, 7, Math.PI * 0.85, Math.PI * 0.15); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#111'; ctx.font = '900 9px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('K', dx, dy - 8.5);
   // jogador
   const ax = mx + px * ROAD * kx;
   ctx.fillStyle = '#1f6fe0'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
@@ -998,17 +1051,19 @@ function drawSpeedo() {
   const w = 128 * U, h = 76 * U, x = W - 10 - sR - w, y = H - 10 - sB - h, kmh = speed * 0.036;
   ctx.fillStyle = 'rgba(6,16,11,.9)'; rr(x, y, w, h, 12 * U); ctx.fill();
   ctx.strokeStyle = '#2fe37a'; ctx.lineWidth = 2; ctx.shadowColor = '#2fe37a'; ctx.shadowBlur = 8; rr(x, y, w, h, 12 * U); ctx.stroke(); ctx.shadowBlur = 0;
-  const N = 20, lit = kmh / 100 * N, sw = (w - 20 * U) / N;
+  const N = 20, lit = kmh / 120 * N, sw = (w - 20 * U) / N;
   for (let i = 0; i < N; i++) {
     const t = i / (N - 1), bh = (7 + 9 * t) * U, bx = x + 10 * U + i * sw, by = y + 9 * U + (1 - t) * 9 * U;
-    ctx.fillStyle = i < lit ? (i >= 14 ? '#ff4d4d' : '#39f08a') : (i >= 14 ? '#3a1515' : '#12301f');
+    ctx.fillStyle = i < lit ? (i >= 16 ? '#ff4d4d' : '#39f08a') : (i >= 16 ? '#3a1515' : '#12301f');
     ctx.fillRect(bx, by, sw - 1.5 * U, bh);
   }
   ctx.fillStyle = '#39f08a'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'right';
   ctx.font = '900 ' + 34 * U + 'px "Courier New",ui-monospace,Menlo,monospace';
-  ctx.shadowColor = '#39f08a'; ctx.shadowBlur = 6; ctx.fillText(String(Math.round(kmh)).padStart(2, '0'), x + w * 0.6, y + h - 10 * U); ctx.shadowBlur = 0;
+  ctx.shadowColor = '#39f08a'; ctx.shadowBlur = 6; ctx.fillText(String(Math.round(kmh)).padStart(2, '0'), x + w * 0.62, y + h - 10 * U); ctx.shadowBlur = 0;
   ctx.font = '700 ' + 12 * U + 'px system-ui,sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = '#b8f7d2';
-  ctx.fillText('km/h', x + w * 0.64, y + h - 11 * U);
+  ctx.fillText('km/h', x + w * 0.66, y + h - 11 * U);
+  ctx.font = '900 ' + 13 * U + 'px system-ui,sans-serif'; ctx.fillStyle = '#ffd100';
+  ctx.fillText(gear + 'ª', x + w * 0.66, y + h - 27 * U);
 }
 
 function render() {
@@ -1045,7 +1100,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, time: order.time, circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
