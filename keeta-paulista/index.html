@@ -209,7 +209,7 @@ const AWN = ['#c9302c','#2f8f5b','#2d6fb3','#d98a1f','#7a4b9a'];
 const PAL = [
   { name:'Dia', top:'#5aa6e6', bot:'#d6ecf8', haze:'#c2d0d8', overlay:null, night:false, sun:['#fff7c9',0.8,0.06] },
   { name:'Fim de tarde', top:'#33406f', bot:'#f6b26b', haze:'#c99a80', overlay:'rgba(255,120,40,.13)', night:false, sun:['#ffd98a',0.3,0.1] },
-  { name:'Noite', top:'#070b1c', bot:'#2a3558', haze:'#2b3350', overlay:'rgba(6,10,40,.42)', night:true, sun:['#e9edf7',0.78,0.05] }
+  { name:'Noite', top:'#070b1c', bot:'#2a3558', haze:'#2b3350', overlay:'rgba(4,8,34,.56)', night:true, sun:['#e9edf7',0.78,0.05] }
 ];
 const CAR_COLS = ['#c9ccd1','#f4f4f4','#2a2c31','#a3242b','#6d737d','#2c4c7c','#8a8f98','#3a3d44'];
 const BLD_COLS = ['#b9b1a2','#c9bfa8','#a7a59d','#d0c2a6','#b59f8a','#9ea5a8','#c7b9a0','#aab0b3','#bfa98f'];
@@ -279,7 +279,7 @@ function shade(hex, f) {
 /* ================= estado ================= */
 let state = 'menu';          // menu | offer | play | result | over
 let level = 0, money = 0, delivered = 0;
-let order = null, pal = PAL[0];
+let order = null, phase = null, oi = 0, doneList = [], pal = PAL[0];   // pedido atual, pedidos da fase, entregas concluídas
 let nseg = 0, cw = null, curve = null, circuit = CIRCUITS[0], segSprites = null, blocks = [[], []];
 let gear = 1, shiftT = 0, skyOff = 0;
 let stops = [], stopIdx = 0, tipLimit = 0;      // clientes da fase, o próximo e o tempo-limite da caixinha
@@ -308,12 +308,15 @@ let best = { n:0, m:0 };
 try { const b = JSON.parse(localStorage.getItem('correPaulistaBest') || 'null'); if (b && typeof b.n === 'number') best = b; } catch (e) {}
 
 /* ================= geração da fase ================= */
-function makeOrder(lv) {
-  // o prazo é sempre 28 min; o que aperta é a missão: rota mais longa, preparo mais lento, mais itens e mais clientes
-  const dist = Math.min(1000 + 60 * (lv - 1), 1400);
-  const i = (lv - 1) % RESTS.length, nCheck = Math.min(4, 2 + Math.floor((lv - 1) / 2));
-  return { rest: RESTS[i], items: ITEMS[i].slice(0, nCheck), dest: DESTS[(lv * 3 + 1) % DESTS.length], dest2: DESTS[(lv * 3 + 4) % DESTS.length], dist,
-    prep: Math.min(2 + 0.4 * (lv - 1), 5), nCust: lv >= 2 ? 2 : 1, pay: 8 + lv * 1.5 };
+function makePhase(lv) {
+  // cada entrega tem 28 min. Fase 1: um pedido; da fase 2 em diante: dois pedidos em sequência (entra, retira, entrega)
+  const n = lv >= 2 ? 2 : 1, L = n === 1 ? 1000 : Math.min(750 + 50 * (lv - 2), 1000);
+  const nCheck = Math.min(4, 2 + Math.floor((lv - 1) / 2)), list = [];
+  for (let j = 0; j < n; j++) {
+    const i = (lv - 1 + j * 3) % RESTS.length;
+    list.push({ rest: RESTS[i], items: ITEMS[i].slice(0, nCheck), dest: DESTS[(lv * 3 + 1 + j * 4) % DESTS.length], dist: L, pay: 8 + lv * 1.5 });
+  }
+  return { list, prep: Math.min(2 + 0.4 * (lv - 1), 5), total: n * L };
 }
 function addSprite(k, o) { if (k >= 0 && k < nseg + 2) (segSprites[k] || (segSprites[k] = [])).push(o); }
 function newPed(z, x, vx) {
@@ -321,13 +324,12 @@ function newPed(z, x, vx) {
 }
 
 function buildLevel(lv) {
-  order = makeOrder(lv);
+  phase = makePhase(lv); oi = 0; order = phase.list[0]; doneList = [];
   pal = PAL[(lv - 1) % PAL.length];
-  finishZ = START + order.dist * 100;
+  finishZ = START + phase.total * 100;
   const finSeg = Math.ceil(finishZ / SEG);
   nseg = finSeg + DRAW + 200;
-  const stopZ = [START + order.dist * 30];              // loja a 30% do caminho, depois os clientes
-  for (let i = 1; i <= order.nCust; i++) stopZ.push(START + order.dist * 100 * (0.3 + 0.7 * i / order.nCust));
+  const stopZ = []; { let zb = START; phase.list.forEach(o => { stopZ.push(zb + o.dist * 30, zb + o.dist * 100); zb += o.dist * 100; }); }   // loja a 30% de cada trecho, depois o cliente
   const stopSegs = stopZ.map(z => Math.ceil(z / SEG));
   cw = new Uint8Array(nseg + 2);
   segSprites = new Array(nseg + 2);
@@ -426,7 +428,7 @@ function buildLevel(lv) {
   stops = []; stopIdx = 0; prep = null;
   stopZ.forEach((z, i) => {
     const c = newPed(z, 1.07, 0);
-    c.t = 'cust'; c.kind = i ? 'cli' : 'loja'; c.n = i ? i : 'L'; c.done = false; c.shirt = i ? '#ffffff' : '#10a880';
+    c.t = 'cust'; c.kind = i % 2 ? 'cli' : 'loja'; c.n = i % 2 ? (i + 1) / 2 : 'L'; c.done = false; c.shirt = i % 2 ? '#ffffff' : '#10a880';
     stops.push(c); addSprite(Math.floor(z / SEG), c);
   });
   tipLimit = TIP_LIMIT;
@@ -442,14 +444,16 @@ function buildLevel(lv) {
 /* ================= áudio ================= */
 let AC = null, eng = null, engGain = null, muted = false;
 function initAudio() {
-  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  if (AC) { if (AC.state !== 'running') { try { AC.resume(); } catch (e) {} } return; }
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
     eng = AC.createOscillator(); eng.type = 'sawtooth'; eng.frequency.value = 60;
     const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 520;
     engGain = AC.createGain(); engGain.gain.value = 0;
     eng.connect(f); f.connect(engGain); engGain.connect(AC.destination); eng.start();
-    musGain = AC.createGain(); musGain.connect(AC.destination);
+    musGain = AC.createGain(); musAna = AC.createAnalyser(); musAna.fftSize = 512; const lim = AC.createDynamicsCompressor(); lim.threshold.value = -14; lim.ratio.value = 12; lim.attack.value = 0.003;   // limita picos
+    musGain.connect(lim); lim.connect(musAna); musAna.connect(AC.destination);
+    if (AC.state !== 'running') AC.resume();
     noiseBuf = AC.createBuffer(1, AC.sampleRate * 0.5, AC.sampleRate);
     const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
   } catch (e) { AC = null; }
@@ -460,7 +464,8 @@ const CHORDS = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];        
 const ARP = [0, 1, 2, 1, 0, 2, 1, 2, 0, 1, 2, 1, 2, 1, 2, -1];
 const TUNE = [[76, -1, 76, 74, 72, -1, 74, -1, 76, -1, 81, -1, 79, -1, 76, -1], [77, -1, 77, 76, 74, -1, 72, -1, 74, -1, 77, -1, 76, -1, 72, -1],
   [79, -1, 79, 76, 72, -1, 76, -1, 79, -1, 84, -1, 83, -1, 79, -1], [74, -1, 79, -1, 83, -1, 81, 79, 76, -1, 74, -1, 71, -1, -1, -1]];
-let musGain = null, musStep = 0, musNext = 0, noiseBuf = null;
+let musGain = null, musAna = null, musStep = 0, musNext = 0, noiseBuf = null;
+function musLevel() { if (!musAna) return 0; const d = new Uint8Array(256); musAna.getByteTimeDomainData(d); let m = 0; for (let i = 0; i < 256; i++) m = Math.max(m, Math.abs(d[i] - 128)); return m / 128; }
 function musNote(freq, t, dur, vol) {
   const o = AC.createOscillator(), g = AC.createGain(); o.type = 'square'; o.frequency.value = freq;
   g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.linearRampToValueAtTime(0, t + dur);
@@ -472,16 +477,18 @@ function musNoise(t, dur, vol) {
   sN.connect(g); g.connect(musGain); sN.start(t, Math.random() * 0.4, dur + 0.02);
 }
 function musTick() {
-  if (!AC || !musGain || AC.state !== 'running') return;
-  musGain.gain.value = muted ? 0 : (state === 'play' && !prep ? 1 : 0.6);
+  if (!AC || !musGain) return;
+  if (AC.state !== 'running') { try { AC.resume(); } catch (e) {} return; }
+  musGain.gain.value = muted ? 0 : (state === 'play' && !prep ? 1 : 0.7);
   const sd = 60 / ((state === 'play' && timeLeft < 0) ? 156 : 132) / 4;            // atrasado: a música acelera
   if (musNext < AC.currentTime) musNext = AC.currentTime + 0.05;
   while (musNext < AC.currentTime + 0.15) {
     const st = musStep % 16, bar = Math.floor(musStep / 16), ch = CHORDS[bar % 4], sect = Math.floor(bar / 4) % 4, t = musNext;
     const lead = sect < 2 ? (ARP[st] < 0 ? -1 : ch[ARP[st]] + 12) : TUNE[bar % 4][st];
-    if (lead > 0) musNote(MIDI(lead), t, sd * 0.9, 0.03);
-    if (st % 2 === 0) musNote(MIDI(ch[0] - 12 + (st % 4 === 2 ? 12 : 0)), t, sd * 1.5, 0.045);
-    if (st % 8 === 4) musNoise(t, 0.09, 0.05); else if (st % 4 === 2) musNoise(t, 0.03, 0.02);
+    // volumes altos e baixo uma oitava acima: alto-falante de celular não reproduz graves
+    if (lead > 0) musNote(MIDI(lead), t, sd * 0.9, 0.1);
+    if (st % 2 === 0) musNote(MIDI(ch[0] + (st % 4 === 2 ? 12 : 0)), t, sd * 1.5, 0.075);
+    if (st % 8 === 4) musNoise(t, 0.09, 0.1); else if (st % 4 === 2) musNoise(t, 0.03, 0.045);
     musNext += sd; musStep++;
   }
 }
@@ -534,6 +541,7 @@ function show(html, onGo) {
 function bestLine() {
   return best.n ? '<div class="best">Recorde: ' + best.n + ' entrega' + (best.n > 1 ? 's' : '') + ' · ' + brl(best.m) + '</div>' : '';
 }
+const START_LEVEL = Math.max(1, parseInt(new URLSearchParams(location.search).get('fase'), 10) || 1);   // ?fase=3 abre direto numa fase (para testes)
 function showMenu() {
   state = 'menu';
   show('<span class="tag">Entregador Keeta</span>' +
@@ -543,27 +551,28 @@ function showMenu() {
     '<li><span>👆</span>Toque e segure no lado esquerdo ou direito da tela para virar</li>' +
     '<li><span>🛑</span>Botão FREIO (ou os dois lados ao mesmo tempo) para frear</li>' +
     '<li><span>🚗</span>Desvie de carros, ônibus, pedestres e buracos</li>' +
-    '<li><span>⏱️</span>Cada pedido tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
+    '<li><span>⏱️</span>Cada entrega tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
     '<li><span>🙋</span>Na loja e no cliente, freie e pare na área amarela junto à calçada; na loja, toque nos itens para conferir</li>' +
     '<li><span>🎁</span>Em até 20 min o cliente dá caixinha; passou de 28, ele ganha desconto e você recebe menos</li>' +
     '<li><span>⚠️</span>Dá para ultrapassar pela contramão, mas os carros vêm de frente</li>' +
     '<li><span>🤘</span>EMPINA: segure para dar grau e ganhar bônus; virar fica difícil e, se passar do tempo ou bater, você cai</li>' +
     '<li><span>↪️</span>Nas curvas a moto é jogada para fora: vire para dentro ou freie</li>' +
     '</ul>' +
-    '<button class="btn">COMEÇAR TURNO</button>' + bestLine(), () => { level = 0; money = 0; delivered = 0; nextOffer(); });
+    '<button class="btn">COMEÇAR TURNO</button>' + bestLine(), () => { level = START_LEVEL - 1; money = 0; delivered = 0; nextOffer(); });
 }
 function nextOffer() {
   level++; buildLevel(level); state = 'offer';               // o pedido entrou: o relógio já corre nesta tela
-  const nC = order.nCust;
+  const n = phase.list.length;
   show('<span class="tag">🔔 Novo pedido · Fase ' + level + ' · ' + pal.name + '</span>' +
     '<div class="oclock" id="oClock">' + fmtClock(timeLeft) + '</div><p class="osub">Entrega em até 28 min · o relógio já está correndo</p>' +
     '<h2>' + order.rest + '</h2><p>' + order.items.join(' · ') + '</p>' +
     '<dl><dt>1. Retirar em</dt><dd>' + order.rest + '</dd>' +
-    '<dt>2. Entregar em</dt><dd>' + (nC > 1 ? order.dest2 + '<br>' : '') + order.dest + '</dd>' +
+    '<dt>2. Entregar em</dt><dd>' + order.dest + '</dd>' +
+    '<dt>Nesta fase</dt><dd>' + (n > 1 ? n + ' entregas, 28 min cada' : '1 entrega em 28 min') + '</dd>' +
     '<dt>Circuito</dt><dd>' + circuit.name + ' · ' + circuit.desc + '</dd>' +
-    '<dt>Distância</dt><dd>' + order.dist + ' m</dd>' +
+    '<dt>Distância</dt><dd>' + order.dist + ' m' + (n > 1 ? ' por entrega' : '') + '</dd>' +
     '<dt>Caixinha</dt><dd>entregando em até 20 min</dd>' +
-    '<dt>Valor da corrida</dt><dd class="big">' + brl(order.pay) + '</dd></dl>' +
+    '<dt>Valor da corrida</dt><dd class="big">' + brl(order.pay) + (n > 1 ? ' cada' : '') + '</dd></dl>' +
     '<button class="btn">ACEITAR PEDIDO</button>', startPlay);
 }
 function startPlay() {
@@ -574,22 +583,30 @@ function startPlay() {
   updateHud();
   last = performance.now();
 }
-function finishDelivery() {
-  state = 'result'; delivered++;
-  const late = timeLeft < 0, d = lateDisc(timeLeft), took = fmtClock(LIMIT - timeLeft);
-  const bonusT = Math.max(0, timeLeft) * 0.12, tip = timeLeft >= tipLimit ? 4 + level : 0;
-  const total = (order.pay * (1 - d) + bonusT) * (0.5 + 0.5 * food / 100) + tip + stunt;
-  money += total;
+function closeDelivery() {             // fecha a conta de uma entrega no momento em que o cliente recebe
+  const d = lateDisc(timeLeft), tip = timeLeft >= tipLimit ? 4 + level : 0, bonusT = Math.max(0, timeLeft) * 0.12;
+  const earn = (order.pay * (1 - d) + bonusT) * (0.5 + 0.5 * food / 100) + tip;
+  doneList.push({ rest: order.rest, took: fmtClock(LIMIT - timeLeft), late: timeLeft < 0, d, tip, earn, food: Math.round(food) });
+  money += earn; delivered++;
+}
+function finishDelivery() {            // fim da fase: resumo de todas as entregas
+  state = 'result';
+  money += stunt;
+  const anyLate = doneList.some(x => x.late), tips = doneList.reduce((a, x) => a + x.tip, 0), total = doneList.reduce((a, x) => a + x.earn, 0) + stunt;
   beep(660, 0.12, 'square', 0.08); beep(880, 0.12, 'square', 0.08, 0.13); beep(1320, 0.25, 'square', 0.08, 0.26);
-  show('<span class="tag" style="background:var(--' + (late ? 'red);color:#fff' : 'ok)') + '">' + (late ? 'Entregue com atraso' : 'Entregue em até 28 min') + '</span>' +
-    '<h2>' + (tip ? '🎁 Ganhou caixinha!' : late ? 'Cliente ganhou desconto' : food >= 50 ? 'Pedido entregue' : 'Chegou… meio amassado') + '</h2>' +
-    '<p>Tempo de entrega: ' + took + ' (prazo 28:00). ' + (tip ? 'Chegou em até 20 min.' : late ? 'O atraso virou ' + Math.round(d * 100) + '% de desconto para o cliente, descontado da sua corrida.' : 'Caixinha só para entregas em até 20 min.') + '</p>' +
-    '<dl><dt>Corrida</dt><dd>' + brl(order.pay) + '</dd>' +
-    (late ? '<dt>Desconto por atraso (' + Math.round(d * 100) + '%)</dt><dd>−' + brl(order.pay * d) + '</dd>' : '<dt>Bônus de tempo</dt><dd>' + brl(bonusT) + '</dd>') +
-    '<dt>Estado do pedido</dt><dd>' + Math.round(food) + '%</dd>' +
-    '<dt>Caixinha do cliente</dt><dd>' + brl(tip) + '</dd>' +
+  let rows = '';
+  doneList.forEach((x, i) => {
+    rows += '<dt>Entrega ' + (i + 1) + ' · ' + x.took + ' de 28:00' + (x.tip ? ' 🎁' : '') + '</dt><dd>' + brl(x.earn) + '</dd>' +
+      (x.late ? '<dt>&nbsp;&nbsp;atraso: ' + Math.round(x.d * 100) + '% de desconto ao cliente</dt><dd>−' + brl(order.pay * x.d) + '</dd>' : '') +
+      '<dt>&nbsp;&nbsp;estado do pedido</dt><dd>' + x.food + '%</dd>';
+  });
+  show('<span class="tag" style="background:var(--' + (anyLate ? 'red);color:#fff' : 'ok)') + '">' + (anyLate ? 'Entregue com atraso' : 'Entregue em até 28 min') + '</span>' +
+    '<h2>' + (tips ? '🎁 Ganhou caixinha!' : anyLate ? 'Cliente ganhou desconto' : 'Pedido entregue') + '</h2>' +
+    '<p>' + (tips ? 'Caixinha para cada entrega feita em até 20 min.' : anyLate ? 'O atraso virou desconto para o cliente, tirado da sua corrida.' : 'Caixinha só para entregas em até 20 min.') + '</p>' +
+    '<dl>' + rows +
+    '<dt>Caixinhas</dt><dd>' + brl(tips) + '</dd>' +
     '<dt>Bônus de grau</dt><dd>' + brl(stunt) + '</dd>' +
-    '<dt>Total desta entrega</dt><dd class="big">' + brl(total) + '</dd>' +
+    '<dt>Total da fase</dt><dd class="big">' + brl(total) + '</dd>' +
     '<dt>Ganhos do turno</dt><dd>' + brl(money) + '</dd></dl>' +
     '<button class="btn">PRÓXIMO PEDIDO</button>', nextOffer);
 }
@@ -622,6 +639,7 @@ const bup = () => { brakeHeld = false; brakeBtn.classList.remove('down'); };
 brakeBtn.addEventListener('pointerup', bup); brakeBtn.addEventListener('pointercancel', bup);
 window.addEventListener('keydown', e => { keys[e.code] = true; if (['ArrowLeft','ArrowRight','ArrowDown','ArrowUp','Space'].includes(e.code)) e.preventDefault(); });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => initAudio(), true));   // qualquer toque destrava o áudio
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
 $('full').addEventListener('click', toggleFull);
@@ -651,7 +669,7 @@ function moveStop(c, z) {            // reposiciona uma parada (loja ou cliente)
   finishZ = stops[stops.length - 1].z;
 }
 function startPrep() {
-  prep = { t: order.prep, ready: false, left: order.items.length };
+  prep = { t: phase.prep, ready: false, left: order.items.length };
   speed = 0; wOn = false; touches.clear();
   $('pTitle').textContent = 'Retirada · ' + order.rest;
   $('pStat').textContent = 'Preparando o pedido…'; $('pBar').style.width = '0%';
@@ -663,13 +681,25 @@ function startPrep() {
       b.classList.add('ok'); b.textContent = '☑ ' + it; beep(990, 0.06, 'square', 0.06);
       if (--prep.left <= 0) {
         prep = null; $('prep').classList.remove('on'); touches.clear(); keys = {};
-        stops[stopIdx].done = true; stopIdx++;
+        stops[stopIdx].done = true; stopIdx++; food = 100;    // pedido novo, inteiro
         beep(880, 0.1, 'square', 0.08); beep(1175, 0.16, 'square', 0.08, 0.1);
         toast('Pedido retirado! Leve ao cliente', '#7dffb0');
       }
     });
     list.appendChild(b);
   });
+  $('prep').classList.add('on');
+}
+function startOffer(doneN) {               // segundo pedido da fase: entra com o relógio de 28:00 já correndo
+  prep = { mode: 'offer' }; speed = 0; wOn = false; touches.clear();
+  $('pTitle').textContent = '🔔 Novo pedido · ' + order.rest;
+  $('pStat').textContent = ''; $('pBar').style.width = '0%';
+  const list = $('pList'); list.innerHTML = '';
+  const ok = document.createElement('small'); ok.style.color = '#7dffb0'; ok.textContent = '✓ Entrega ' + doneN + ' concluída em ' + doneList[doneList.length - 1].took; list.appendChild(ok);
+  const info = document.createElement('small'); info.textContent = order.items.join(' · ') + ' → ' + order.dest; list.appendChild(info);
+  const b = document.createElement('button'); b.className = 'pitem'; b.textContent = 'ACEITAR PEDIDO';
+  b.addEventListener('click', () => { if (!prep) return; prep = null; $('prep').classList.remove('on'); touches.clear(); keys = {}; beep(660, 0.08, 'square', 0.06); });
+  list.appendChild(b);
   $('prep').classList.add('on');
 }
 function hurt(dmg, msg, big) {
@@ -684,8 +714,9 @@ function update(dt) {
   if (prep) {                       // parado na loja: o relógio continua correndo
     timeLeft -= dt; speed = 0; steerS *= 0.8; wheelie *= 0.8;
     if (engGain) { engGain.gain.value = muted ? 0 : 0.02; eng.frequency.value = 58; }
-    if (!prep.ready) {
-      prep.t -= dt; $('pBar').style.width = clamp(1 - prep.t / order.prep, 0, 1) * 100 + '%';
+    if (prep.mode === 'offer') $('pStat').textContent = 'Entrega em até 28 min · relógio: ' + fmtClock(timeLeft);
+    else if (!prep.ready) {
+      prep.t -= dt; $('pBar').style.width = clamp(1 - prep.t / phase.prep, 0, 1) * 100 + '%';
       if (prep.t <= 0) { prep.ready = true; $('pStat').textContent = 'Pronto! Toque em cada item para conferir'; beep(1320, 0.12, 'square', 0.07);
         document.querySelectorAll('.pitem').forEach(b => b.classList.remove('wait')); }
     }
@@ -781,7 +812,7 @@ function update(dt) {
 
   timeLeft -= dt;
   if (engGain) {
-    engGain.gain.value = muted ? 0 : 0.035;
+    engGain.gain.value = muted ? 0 : 0.02;
     const lo = GEAR_KMH[gear - 1], hi = gear < 5 ? GEAR_KMH[gear] : 100;
     eng.frequency.value = 62 + gear * 9 + clamp((speed * 0.036 - lo) / (hi - lo), 0, 1) * 70;
   }
@@ -790,8 +821,10 @@ function update(dt) {
     if (c.kind === 'loja') { startPrep(); return; }
     c.done = true; stopIdx++;
     beep(880, 0.1, 'square', 0.08); beep(1175, 0.16, 'square', 0.08, 0.1);
+    closeDelivery();
     if (stopIdx >= stops.length) { if (engGain) engGain.gain.value = 0; finishDelivery(); return; }
-    toast('Entregue! ' + (stopIdx - 1) + '/' + order.nCust, '#7dffb0');
+    const doneN = oi + 1;
+    oi++; order = phase.list[oi]; timeLeft = LIMIT; startOffer(doneN); return;   // próxima entrega: novo relógio de 28:00
   } else if (pos > c.z + ZONE_FWD) {                     // passou direto: a parada fica 90 m adiante
     moveStop(c, pos + 9000);
     toast(c.kind === 'loja' ? 'Passou da loja! Pare adiante' : 'Passou do cliente! Pare adiante', '#ff8a8d');
@@ -811,7 +844,7 @@ function updateHud() {
   const lbl = left >= 1000 ? (left / 1000).toFixed(2).replace('.', ',') + ' km' : Math.ceil(left) + ' m';
   setTxt('tDist', (near ? (loja ? 'PARE NA LOJA: ' : 'PARE NO CLIENTE: ') : (loja ? 'LOJA A ' : 'CLIENTE A ')) + lbl);
   $('hc').classList.toggle('stop', near);
-  setTxt('tDest', loja ? '1/2 RETIRAR · ' + order.rest : '2/2 ENTREGAR' + (order.nCust > 1 ? ' ' + Math.min(stopIdx, order.nCust) + '/' + order.nCust : '') + ' · ' + (order.nCust > 1 && stopIdx === 1 ? order.dest2 : order.dest));
+  setTxt('tDest', (phase.list.length > 1 ? 'Entrega ' + (oi + 1) + '/' + phase.list.length + ' · ' : '') + (loja ? 'RETIRAR · ' + order.rest : 'ENTREGAR · ' + order.dest));
   const tipOn = timeLeft >= tipLimit;
   setTxt('tTip', tipOn ? '🎁 caixinha por mais ' + fmtClock(timeLeft - tipLimit) : timeLeft >= 0 ? '🎁 caixinha perdida' : 'desconto ao cliente: ' + Math.round(lateDisc(timeLeft) * 100) + '%');
   $('tTip').classList.toggle('lost', !tipOn && timeLeft >= 0); $('tTip').classList.toggle('bad', timeLeft < 0);
@@ -1007,6 +1040,31 @@ function shadow(xc, hw, z0, z1) {
   P(xc - hw, 0, z0); const a = _x, ay = _y; P(xc + hw, 0, z0); const b = _x; P(xc + hw, 0, z1); const c = _x, cy = _y; P(xc - hw, 0, z1); const d = _x;
   ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.moveTo(a, ay); ctx.lineTo(b, ay); ctx.lineTo(c, cy); ctx.lineTo(d, cy); ctx.fill();
 }
+const lights = [], beams = [];        // luzes da noite, desenhadas depois do escurecimento
+function lamp(xw, yw, z, r, col) { if (!pal.night || z - camZ < 60) return; P(xw, yw, z); lights.push(_x, _y, Math.max(1.2, r * _s), col); }
+function beam(xc, z0, z1, w0, w1, a) {
+  if (!pal.night || z1 - camZ < 120 || z0 - camZ > 14000) return;
+  z0 = Math.max(z0, camZ + 90);
+  P(xc - w0, 0, z0); const ax = _x, ay = _y; P(xc + w0, 0, z0); const bx = _x;
+  P(xc + w1, 0, z1); const cx2 = _x, cy = _y; P(xc - w1, 0, z1); const dx = _x;
+  beams.push(ax, ay, bx, cx2, cy, dx, a);
+}
+function drawLights() {
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < beams.length; i += 7) {
+    const g = ctx.createLinearGradient(0, beams[i + 1], 0, beams[i + 4]);
+    const near = beams[i + 1] > beams[i + 4];
+    g.addColorStop(0, 'rgba(255,236,170,' + beams[i + 6] + ')'); g.addColorStop(1, 'rgba(255,236,170,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(beams[i], beams[i + 1]); ctx.lineTo(beams[i + 2], beams[i + 1]); ctx.lineTo(beams[i + 3], beams[i + 4]); ctx.lineTo(beams[i + 5], beams[i + 4]); ctx.fill();
+  }
+  for (let i = 0; i < lights.length; i += 4) {
+    const x = lights[i], y = lights[i + 1], r = lights[i + 2], c = lights[i + 3];
+    ctx.fillStyle = 'rgba(' + c + ',.22)'; ctx.beginPath(); ctx.arc(x, y, r * 3, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(' + c + ',.95)'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  lights.length = 0; beams.length = 0;
+}
 function drawCar(c) {
   const z = c.z, xc = c.x * ROAD, front = c.t === 'on';
   if (z - camZ < 60 || (S / (z - camZ)) * 184 < 1.5) return;
@@ -1022,8 +1080,9 @@ function drawCar(c) {
   face(xc, 78, c0, 88, 142, front ? '#9fc3dd' : '#1e2a36');
   if (c.taxi) face(xc, 18, (c0 + c1) / 2, 142, 156, '#ffd100');
   if (pal.night) {
-    P(xc, 70, z); ctx.fillStyle = front ? 'rgba(255,240,180,.3)' : 'rgba(255,40,40,.28)';
-    ctx.beginPath(); ctx.arc(_x - 66 * _s, _y, 42 * _s, 0, 7); ctx.arc(_x + 66 * _s, _y, 42 * _s, 0, 7); ctx.fill();
+    const col = front ? '255,244,200' : '255,40,40';
+    lamp(xc - 66, 69, z, 17, col); lamp(xc + 66, 69, z, 17, col);
+    if (front) beam(xc, z - 1700, z, 300, 95, 0.16); else beam(xc, z + 430, z + 2000, 95, 300, 0.13);
   }
 }
 function drawBus(c) {
@@ -1040,6 +1099,8 @@ function drawBus(c) {
   face(xc - 104, 18, z, 70, 92, '#e3262e'); face(xc + 104, 18, z, 70, 92, '#e3262e');
   face(xc, 122, z, 285, 302, '#f2b632');
   face(xc - 100, 16, z, 0, 36, '#131416'); face(xc + 100, 16, z, 0, 36, '#131416');
+  lamp(xc - 104, 81, z, 16, '255,40,40'); lamp(xc + 104, 81, z, 16, '255,40,40');
+  beam(xc, z + c.len, z + c.len + 1800, 120, 340, 0.13);
 }
 function drawPed(p) {
   if (p.z - camZ < 70) return;
@@ -1073,7 +1134,7 @@ function drawCrack(o) {
   ctx.stroke();
 }
 function drawBusTxt(o) {
-  const dz = o.z - camZ; if (dz < 420 || dz > 9000) return;
+  const dz = o.z - camZ; if (dz < 800 || dz > 9000) return;
   P(LANES[2] * ROAD, 0, o.z - 95); const yb = _y; P(LANES[2] * ROAD, 0, o.z + 95); const yt = _y;
   P(LANES[2] * ROAD, 0, o.z); const hpx = yb - yt, wpx = 285 * _s;
   if (hpx < 2.5) return;
@@ -1104,7 +1165,7 @@ function drawPole(o) {
   const ax = -o.sg * 170 * s;                      // braço da luminária para o lado da rua
   ctx.fillRect(Math.min(x, x + ax), y - 790 * s, Math.abs(ax), 8 * s);
   ctx.fillStyle = pal.night ? '#fff3b0' : '#d9dbe0'; ctx.fillRect(x + ax - 28 * s, y - 792 * s, 56 * s, 14 * s);
-  if (pal.night) { ctx.fillStyle = 'rgba(255,240,170,.2)'; ctx.beginPath(); ctx.arc(x + ax, y - 780 * s, 120 * s, 0, 7); ctx.fill(); }
+  if (pal.night) lights.push(x + ax, y - 785 * s, Math.max(1, 15 * s), '255,240,170');
 }
 function drawSign(o) {
   if (o.z - camZ < 70) return;
@@ -1131,7 +1192,12 @@ function drawFinish(o) {
 }
 
 /* ---------- o entregador (visto de trás), em cm ---------- */
+let riderPass = 0;                   // 1 = redesenho por cima das luzes (não emite luz de novo)
 function drawRider() {
+  if (pal.night && !riderPass) {                 // farol iluminando a pista e lanterna traseira
+    const rx = px * ROAD;
+    beam(rx, pos + 170, pos + 4200, 55, 520, 0.34); beam(rx, pos + 170, pos + 2200, 40, 230, 0.3);
+  }
   P(px * ROAD, 0, pos); const s = _s;
   ctx.save(); ctx.translate(_x, _y); ctx.scale(s, -s);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(6, -4, 46, 16, 0, 0, 7); ctx.fill();
@@ -1326,6 +1392,8 @@ function render() {
     if (b.length) { if (b.length > 1) b.sort(byFar); for (let i = 0; i < b.length; i++) spriteAt(b[i]); }
   }
   if (pal.overlay) { ctx.fillStyle = pal.overlay; ctx.fillRect(0, 0, W, H); }
+  if (pal.night) { drawLights(); riderPass = 1; drawRider(); riderPass = 0; }   // o entregador fica por cima do facho do próprio farol
+  else { lights.length = 0; beams.length = 0; }
   to8bit();
   hx.clearRect(0, 0, FW, FHH);
   if (state === 'play') { drawMinimap(); drawSpeedo(); }
@@ -1347,7 +1415,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, musStep, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, musStep, musLevel: musLevel(), oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
