@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#111111">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Corre na Paulista</title>
 <style>
   :root { --yel:#ffd100; --ink:#111214; --red:#e5383b; --ok:#2fbf71; }
@@ -67,6 +68,19 @@
   @media (orientation:landscape) {
     #brake { left:auto; transform:none; right:calc(env(safe-area-inset-right) + 12px); bottom:calc(env(safe-area-inset-bottom) + 108px); height:44px; width:100px; }
   }
+  #wheel { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 74px); transform:translateX(-50%);
+    width:92px; height:44px; border:2px solid #000; background:#ffd100; color:#111; font-weight:800; font-size:13px; letter-spacing:.06em;
+    display:none; touch-action:none; box-shadow:4px 4px 0 #000; overflow:hidden; padding:0; }
+  #wheel.on { display:block; }
+  #wheel.down { background:#fff3a0; }
+  #wheel.cool { background:#8a8a8a; color:#333; }
+  #wheel i { position:absolute; left:0; bottom:0; height:5px; width:0; background:#e5383b; }
+  #wheel span { position:relative; }
+  @media (orientation:landscape) {
+    #wheel { left:calc(env(safe-area-inset-left) + 12px); transform:none; bottom:auto; top:44%; width:100px; }
+  }
+  #full { pointer-events:auto; background:rgba(10,12,16,.8); border:1px solid rgba(255,255,255,.3); color:#fff; font-size:15px; width:36px; height:30px; padding:0; }
+  #hr .rowb { display:flex; gap:5px; }
   .hint { position:fixed; top:50%; font-size:44px; color:#fff; opacity:0; pointer-events:none;
     text-shadow:0 2px 8px rgba(0,0,0,.6); transition:opacity .4s; }
   .hint.on { opacity:.75; }
@@ -121,12 +135,13 @@
     </div>
   </div>
   <div id="hc"><small>TEMPO RESTANTE</small><b id="tTime">00:00</b><span id="tDist">DISTÂNCIA: 0,00 km</span><span id="tDest"></span></div>
-  <div id="hr"><div id="tMoney">R$ 0,00</div><button id="mute" aria-label="Som">🔊</button></div>
+  <div id="hr"><div id="tMoney">R$ 0,00</div><div class="rowb"><button id="full" aria-label="Tela cheia">⛶</button><button id="mute" aria-label="Som">🔊</button></div></div>
 </div>
 
 <div class="hint" id="hL">◀</div>
 <div class="hint" id="hR">▶</div>
 <button id="brake">FREIO</button>
+<button id="wheel"><i id="wMeter"></i><span>EMPINA</span></button>
 <div id="toast"></div>
 <div id="flash"></div>
 
@@ -246,6 +261,8 @@ let level = 0, money = 0, delivered = 0;
 let order = null, pal = PAL[0];
 let nseg = 0, cw = null, curve = null, circuit = CIRCUITS[0], segSprites = null, blocks = [[], []];
 let gear = 1, shiftT = 0, skyOff = 0;
+let wheelie = 0, wHold = 0, wCool = 0, wOn = false, stunt = 0, stuntT = 0;   // empinada
+const W_MAX = 3.2;        // segundos que dá para segurar a roda no ar
 const CX = new Float32Array(DRAW + 2);
 let cars = [], peds = [], oncoming = [];
 let finishZ = 0;
@@ -379,6 +396,7 @@ function buildLevel(lv) {
 
   pos = START; px = LANES[1]; speed = 0; steer = 0; steerS = 0; braking = false;
   timeLeft = order.time; food = 100; hurtCd = 0; shake = 0; bump = 0; gear = 1; shiftT = 0;
+  wheelie = 0; wHold = 0; wCool = 0; wOn = false; stunt = 0; stuntT = 0;
 }
 
 /* ================= áudio ================= */
@@ -411,6 +429,8 @@ function thud(vol) {
 
 /* ================= HUD / telas ================= */
 const $ = id => document.getElementById(id);
+let fullAsked = false;
+const wheelBtn = $('wheel');
 const hud = $('hud'), ui = $('ui'), card = $('card'), brakeBtn = $('brake'), toastEl = $('toast'), flashEl = $('flash');
 function toast(msg, color) {
   toastEl.textContent = msg; toastEl.style.color = color || '#fff';
@@ -420,11 +440,21 @@ function flash() {
   flashEl.style.transition = 'none'; flashEl.style.opacity = '.38'; void flashEl.offsetWidth;
   flashEl.style.transition = 'opacity .45s'; flashEl.style.opacity = '0';
 }
+function goFull() {
+  const el = document.documentElement, fn = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!fn || document.fullscreenElement || document.webkitFullscreenElement) return;
+  try { const r = fn.call(el, { navigationUI:'hide' }); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+}
+function toggleFull() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    const ex = document.exitFullscreen || document.webkitExitFullscreen; if (ex) { try { ex.call(document); } catch (e) {} }
+  } else goFull();
+}
 function show(html, onGo) {
   card.innerHTML = html; ui.classList.remove('off'); ui.scrollTop = 0;
-  hud.classList.remove('on'); brakeBtn.classList.remove('on');
+  hud.classList.remove('on'); brakeBtn.classList.remove('on'); wheelBtn.classList.remove('on');
   const b = card.querySelector('.btn');
-  if (b) b.addEventListener('click', () => { initAudio(); beep(660, 0.08, 'square', 0.06); onGo(); }, { once:true });
+  if (b) b.addEventListener('click', () => { initAudio(); if (!fullAsked) { fullAsked = true; goFull(); } beep(660, 0.08, 'square', 0.06); onGo(); }, { once:true });
 }
 function bestLine() {
   return best.n ? '<div class="best">Recorde: ' + best.n + ' entrega' + (best.n > 1 ? 's' : '') + ' · ' + brl(best.m) + '</div>' : '';
@@ -439,6 +469,7 @@ function showMenu() {
     '<li><span>🛑</span>Botão FREIO (ou os dois lados ao mesmo tempo) para frear</li>' +
     '<li><span>🚗</span>Desvie de carros, ônibus, pedestres e buracos</li>' +
     '<li><span>⚠️</span>Dá para ultrapassar pela contramão, mas os carros vêm de frente</li>' +
+    '<li><span>🤘</span>EMPINA: segure para dar grau e ganhar bônus; virar fica difícil e, se passar do tempo ou bater, você cai</li>' +
     '<li><span>↪️</span>Nas curvas a moto é jogada para fora: vire para dentro ou freie</li>' +
     '</ul>' +
     '<button class="btn">COMEÇAR TURNO</button>' + bestLine(), () => { level = 0; money = 0; delivered = 0; nextOffer(); });
@@ -457,7 +488,7 @@ function nextOffer() {
     '<button class="btn">ACEITAR E SAIR</button>', startPlay);
 }
 function startPlay() {
-  state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on');
+  state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on'); wheelBtn.classList.add('on'); wheelHeld = false;
   $('tDest').textContent = order.dest; touches.clear(); keys = {}; hudCache = {};
   $('hL').classList.add('on'); $('hR').classList.add('on');
   setTimeout(() => { $('hL').classList.remove('on'); $('hR').classList.remove('on'); }, 3500);
@@ -467,7 +498,7 @@ function startPlay() {
 function finishDelivery() {
   state = 'result'; delivered++;
   const bonusT = timeLeft * 0.12, tip = food >= 90 ? 3 : 0;
-  const total = (order.pay + bonusT) * (0.5 + 0.5 * food / 100) + tip;
+  const total = (order.pay + bonusT) * (0.5 + 0.5 * food / 100) + tip + stunt;
   money += total;
   beep(660, 0.12, 'square', 0.08); beep(880, 0.12, 'square', 0.08, 0.13); beep(1320, 0.25, 'square', 0.08, 0.26);
   show('<span class="tag" style="background:var(--ok)">Entregue no prazo</span>' +
@@ -476,6 +507,7 @@ function finishDelivery() {
     '<dt>Bônus de tempo (' + timeLeft.toFixed(1).replace('.', ',') + ' s)</dt><dd>' + brl(bonusT) + '</dd>' +
     '<dt>Estado do pedido</dt><dd>' + Math.round(food) + '%</dd>' +
     '<dt>Gorjeta</dt><dd>' + brl(tip) + '</dd>' +
+    '<dt>Bônus de grau</dt><dd>' + brl(stunt) + '</dd>' +
     '<dt>Total desta entrega</dt><dd class="big">' + brl(total) + '</dd>' +
     '<dt>Ganhos do turno</dt><dd>' + brl(money) + '</dd></dl>' +
     '<button class="btn">PRÓXIMO PEDIDO</button>', nextOffer);
@@ -499,7 +531,7 @@ function gameOver(why) {
 
 /* ================= controles ================= */
 const touches = new Map();
-let keys = {}, brakeHeld = false;
+let keys = {}, brakeHeld = false, wheelHeld = false, wantWheel = false;
 cv.addEventListener('pointerdown', e => { if (state !== 'play') return; initAudio(); touches.set(e.pointerId, e.clientX < FW / 2 ? -1 : 1); e.preventDefault(); });
 cv.addEventListener('pointermove', e => { if (touches.has(e.pointerId)) touches.set(e.pointerId, e.clientX < FW / 2 ? -1 : 1); });
 const up = e => touches.delete(e.pointerId);
@@ -511,6 +543,10 @@ window.addEventListener('keydown', e => { keys[e.code] = true; if (['ArrowLeft',
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
+$('full').addEventListener('click', toggleFull);
+wheelBtn.addEventListener('pointerdown', e => { wheelHeld = true; wheelBtn.classList.add('down'); try { wheelBtn.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
+const wup = () => { wheelHeld = false; wheelBtn.classList.remove('down'); };
+wheelBtn.addEventListener('pointerup', wup); wheelBtn.addEventListener('pointercancel', wup);
 $('mute').addEventListener('click', () => { muted = !muted; $('mute').textContent = muted ? '🔇' : '🔊'; });
 document.addEventListener('visibilitychange', () => { last = performance.now(); if (document.hidden && engGain) engGain.gain.value = 0; });
 
@@ -521,11 +557,13 @@ function readInput() {
   if (keys.ArrowRight || keys.KeyD) r = true;
   braking = brakeHeld || (l && r) || keys.ArrowDown || keys.KeyS || keys.Space;
   steer = (l && r) ? 0 : l ? -1 : r ? 1 : 0;
+  wantWheel = wheelHeld || keys.ArrowUp || keys.KeyW;
 }
 
 /* ================= simulação ================= */
 function hurt(dmg, msg, big) {
   if (hurtCd > 0) return;
+  if (wOn) { wOn = false; wHold = 0; wCool = 1.5; stuntT = 0; dmg += 8; msg = 'Caiu do grau! ' + msg; }
   food = Math.max(0, food - dmg); hurtCd = 0.9; shake = big ? 1 : 0.55;
   toast(msg + '  −' + dmg + '%', '#ff8a8d'); flash(); thud(big ? 0.4 : 0.22);
   if (navigator.vibrate) { try { navigator.vibrate(big ? 160 : 70); } catch (e) {} }
@@ -540,16 +578,27 @@ function update(dt) {
 
   const onSide = px > 1.0;
   const vmax = onSide ? V_CALC : VMAX;
+  // empinada: precisa de velocidade, tem limite de tempo e rende bônus
+  wCool = Math.max(0, wCool - dt);
+  if (wOn) {
+    wHold += dt; stuntT += dt; stunt += 0.3 * dt;
+    if (!wantWheel || braking || speed < 500) {
+      wOn = false; wHold = 0; wCool = 0.4;
+      if (stuntT > 0.6) toast('Grau! +' + brl(stuntT * 0.3), '#ffd100');
+      stuntT = 0;
+    } else if (wHold > W_MAX) { hurtCd = 0; speed *= 0.35; hurt(15, 'Passou do ponto!', true); }
+  } else if (wantWheel && wCool <= 0 && !braking && speed >= 720 && px <= 1.0) { wOn = true; wHold = 0; stuntT = 0; beep(180, 0.12, 'sawtooth', 0.07); }
+  wheelie += ((wOn ? 1 : 0) - wheelie) * Math.min(1, dt * 8);
   let g = 1; const kmh0 = speed * 0.036;
   for (let i = 1; i < GEAR_KMH.length; i++) if (kmh0 >= GEAR_KMH[i]) g = i + 1;
   if (g > gear) shiftT = 0.14;                           // pequena pausa ao subir de marcha
   gear = g; shiftT = Math.max(0, shiftT - dt);
   if (braking) speed = Math.max(0, speed - BRAKE * dt);
-  else if (speed < vmax && shiftT <= 0) speed = Math.min(vmax, speed + GEAR_ACC[gear - 1] * dt);
+  else if (speed < vmax && shiftT <= 0 && !wOn) speed = Math.min(vmax, speed + GEAR_ACC[gear - 1] * dt);
   if (speed > vmax) speed = Math.max(vmax, speed - 2600 * dt);
   if (onSide && speed > 100) bump = Math.sin(tAnim * 40) * 5;
 
-  px += steerS * dt * 1.05 * (0.3 + 0.7 * Math.min(1, speed / 800));
+  px += steerS * dt * 1.05 * (0.3 + 0.7 * Math.min(1, speed / 800)) * (wOn ? 0.35 : 1);
   const cv0 = curve[Math.floor(pos / SEG)] || 0, sp = speed / VMAX;
   px -= cv0 * CENTRI * sp * sp * dt;                     // curva empurra para fora
   skyOff += cv0 * sp * dt * 6;
@@ -631,6 +680,8 @@ function updateHud() {
   const prog = clamp((pos - START) / (finishZ - START) * 100, 0, 100);
   setTxt('tFood', 'PEDIDO ' + Math.round(food) + '%');
   setTxt('tRoute', 'ROTA ' + Math.floor(prog) + '%');
+  $('wMeter').style.width = (wOn ? clamp(wHold / W_MAX, 0, 1) * 100 : 0).toFixed(0) + '%';
+  wheelBtn.classList.toggle('cool', !wOn && (wCool > 0 || speed < 720));
   $('bFood').style.width = food.toFixed(0) + '%';
   $('bRoute').style.width = prog.toFixed(1) + '%';
 }
@@ -944,7 +995,13 @@ function drawRider() {
   P(px * ROAD, 0, pos); const s = _s;
   ctx.save(); ctx.translate(_x, _y); ctx.scale(s, -s);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(6, -4, 46, 16, 0, 0, 7); ctx.fill();
-  ctx.rotate(-steerS * 0.13);
+  ctx.rotate(-steerS * 0.13 * (1 - wheelie * 0.6));
+  if (wheelie > 0.03) {             // roda da frente no alto e a barriga da moto aparecendo
+    const wl = wheelie;
+    ctx.fillStyle = '#111214'; rr(-8, 150 + wl * 34, 16, 40 * wl + 6, 7); ctx.fill();
+    ctx.strokeStyle = '#8d9299'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-9, 120 + wl * 30); ctx.lineTo(-8, 175 + wl * 34); ctx.moveTo(9, 120 + wl * 30); ctx.lineTo(8, 175 + wl * 34); ctx.stroke();
+    ctx.fillStyle = '#3a3d42'; rr(-15, 30, 30, 26 + wl * 34, 6); ctx.fill();
+  }
   // Cores tiradas da foto da bag oficial (valores aproximados): verde no corpo, amarelo no painel, letras pretas.
   // A jaqueta usa o mesmo verde; capacete amarelo e calça escura não têm fonte.
   const Y = '#f5d90a', YD = '#d4b800', K = '#17181b', G = '#10a880', GD = '#0a7f60', PT = '#2b2d33';
@@ -952,14 +1009,17 @@ function drawRider() {
   const L = (c, lw, pts) => { ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]); ctx.stroke(); };
   const T = (txt, y, font, col, mw) => { ctx.save(); ctx.scale(1, -1); ctx.fillStyle = col; ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, 0, -y, mw); ctx.restore(); };
   // guidão e retrovisores (à frente do corpo)
+  ctx.save(); ctx.translate(0, wheelie * 34);
   L('#2c2e33', 5, [-45, 121, 45, 121]);
   L('#2c2e33', 3, [-33, 121, -45, 142]); L('#2c2e33', 3, [33, 121, 45, 142]);
   ctx.fillStyle = '#b9c4cc'; ctx.beginPath(); ctx.ellipse(-47, 146, 8, 5, 0, 0, 7); ctx.ellipse(47, 146, 8, 5, 0, 0, 7); ctx.fill();
   // braços estendidos para a frente; só o dorso da luva aparece, fechado na manopla
   L(G, 13, [-22, 141, -36, 132, -40, 124]); L(G, 13, [22, 141, 36, 132, 40, 124]);
   R(-47, 116, 13, 10, 4, K); R(34, 116, 13, 10, 4, K);
+  ctx.restore();
   // roda traseira, escapamento, rabeta
   R(-7, 0, 14, 64, 6, '#111214');
+  ctx.translate(0, wheelie * 34); ctx.scale(1, 1 - wheelie * 0.1);
   R(17, 26, 13, 16, 5, '#8d9299'); R(19, 29, 9, 10, 4, '#3a3d42');
   R(-19, 44, 38, 16, 5, '#2a2c31');
   R(-17, 56, 34, 26, 7, K);
@@ -1131,7 +1191,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, time: order.time, circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, time: order.time, circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
