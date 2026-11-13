@@ -52,6 +52,9 @@
   @keyframes blink { 50% { opacity:.35; } }
   #tDist { display:block; font-size:10.5px; letter-spacing:.05em; margin-top:2px; color:#eaf2f8; font-variant-numeric:tabular-nums; }
   #tDest { display:block; font-size:9px; color:#ffd100; max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:1px auto 0; }
+  #tTip { display:block; font-size:9px; margin-top:1px; color:#7dffb0; white-space:nowrap; }
+  #tTip.lost { color:#8a8f98; text-decoration:line-through; }
+  #hc.stop #tDist { color:#ffd100; font-weight:800; }
   #hr { flex:1 1 0; display:flex; flex-direction:column; align-items:flex-end; gap:5px; min-width:0; }
   #tMoney { background:rgba(10,12,16,.8); border:1px solid rgba(255,255,255,.3); border-radius:7px; padding:4px 8px;
     font-weight:800; font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -134,7 +137,7 @@
       <div class="hb grn"><i id="bRoute"></i><span id="tRoute">ROTA 0%</span></div>
     </div>
   </div>
-  <div id="hc"><small>TEMPO RESTANTE</small><b id="tTime">00:00</b><span id="tDist">DISTÂNCIA: 0,00 km</span><span id="tDest"></span></div>
+  <div id="hc"><small>TEMPO RESTANTE</small><b id="tTime">00:00</b><span id="tDist">DISTÂNCIA: 0,00 km</span><span id="tDest"></span><span id="tTip"></span></div>
   <div id="hr"><div id="tMoney">R$ 0,00</div><div class="rowb"><button id="full" aria-label="Tela cheia">⛶</button><button id="mute" aria-label="Som">🔊</button></div></div>
 </div>
 
@@ -261,6 +264,9 @@ let level = 0, money = 0, delivered = 0;
 let order = null, pal = PAL[0];
 let nseg = 0, cw = null, curve = null, circuit = CIRCUITS[0], segSprites = null, blocks = [[], []];
 let gear = 1, shiftT = 0, skyOff = 0;
+let stops = [], stopIdx = 0, tipLimit = 0;      // clientes da fase, o próximo e o tempo-limite da caixinha
+const ZONE_BACK = 1500, ZONE_FWD = 600, STOP_V = 560;   // zona de entrega (cm) e velocidade máxima para entregar (20 km/h)
+const nextStop = () => stops[Math.min(stopIdx, stops.length - 1)];
 let wheelie = 0, wHold = 0, wCool = 0, wOn = false, stunt = 0, stuntT = 0;   // empinada
 const W_MAX = 3.2;        // segundos que dá para segurar a roda no ar
 const CX = new Float32Array(DRAW + 2);
@@ -281,7 +287,7 @@ function makeOrder(lv) {
   const dist = 1000;                                     // mesma distância em todas as fases: o prazo é que encolhe
   const avg = Math.min(12.5 * Math.pow(1.07, lv - 1), 19); // velocidade média exigida (m/s)
   const i = (lv - 1) % RESTS.length;
-  return { rest: RESTS[i], items: ITEMS[i], dest: DESTS[(lv * 3 + 1) % DESTS.length], dist,
+  return { rest: RESTS[i], items: ITEMS[i], dest: DESTS[(lv * 3 + 1) % DESTS.length], dest2: DESTS[(lv * 3 + 4) % DESTS.length], dist,
     time: Math.round(dist / avg), pay: 8 + lv * 1.5 };
 }
 function addSprite(k, o) { if (k >= 0 && k < nseg + 2) (segSprites[k] || (segSprites[k] = [])).push(o); }
@@ -294,7 +300,9 @@ function buildLevel(lv) {
   pal = PAL[(lv - 1) % PAL.length];
   finishZ = START + order.dist * 100;
   const finSeg = Math.ceil(finishZ / SEG);
-  nseg = finSeg + DRAW + 30;
+  nseg = finSeg + DRAW + 200;
+  const nStops = lv >= 2 ? 2 : 1, stopSegs = [];
+  for (let i = 1; i <= nStops; i++) stopSegs.push(Math.ceil((START + order.dist * 100 * i / nStops) / SEG));
   cw = new Uint8Array(nseg + 2);
   segSprites = new Array(nseg + 2);
   circuit = CIRCUITS[(lv - 1) % CIRCUITS.length];
@@ -313,7 +321,7 @@ function buildLevel(lv) {
   let nextCross = rint(4, 6), st = rint(0, STREETS.length - 1);
   const maspAt = circuit.name === 'Av. Paulista' ? Math.floor(finSeg / BLOCK * 0.45) : -9;
   for (let b = 0; b < nb; b++) {
-    const gap = b === nextCross && Math.abs(b * BLOCK - finSeg) > 12 && b !== maspAt && b !== maspAt + 1;
+    const gap = b === nextCross && stopSegs.every(ss => Math.abs(b * BLOCK - ss) > 14) && b !== maspAt && b !== maspAt + 1;
     for (let s = 0; s < 2; s++) {
       const col = pick(BLD_COLS), low = Math.random() < circuit.low;
       const masp = s === 1 && maspAt >= 2 && (b === maspAt || b === maspAt + 1);
@@ -389,7 +397,13 @@ function buildLevel(lv) {
     oncoming.push({ t:'on', z: START + 3000 + rnd(0, DRAW * SEG), x: -LANES[i % 3] + rnd(-0.02, 0.02), v: [1250, 1050, 800][i % 3] * rnd(0.95, 1.05),
       hw: 92 / ROAD, len: 430, col: pick(CAR_COLS) });
 
-  addSprite(finSeg, { t:'finish', z: finishZ });
+  stops = []; stopIdx = 0;
+  for (let i = 1; i <= nStops; i++) {
+    const c = newPed(START + order.dist * 100 * i / nStops, 1.07, 0);
+    c.t = 'cust'; c.n = i; c.done = false; c.shirt = '#ffffff';
+    stops.push(c); addSprite(Math.floor(c.z / SEG), c);
+  }
+  tipLimit = order.time * 0.3;                           // caixinha: terminar com 30% do prazo sobrando
 
   skyline = [];
   for (let x = 0; x < 1.02; ) { const w = rnd(0.02, 0.06); skyline.push({ x, w, h: rnd(0.02, 0.1) }); x += w; }
@@ -468,6 +482,8 @@ function showMenu() {
     '<li><span>👆</span>Toque e segure no lado esquerdo ou direito da tela para virar</li>' +
     '<li><span>🛑</span>Botão FREIO (ou os dois lados ao mesmo tempo) para frear</li>' +
     '<li><span>🚗</span>Desvie de carros, ônibus, pedestres e buracos</li>' +
+    '<li><span>🙋</span>Para entregar, freie e pare ao lado do cliente, na área amarela junto à calçada</li>' +
+    '<li><span>🎁</span>Entregou rápido? O cliente dá caixinha</li>' +
     '<li><span>⚠️</span>Dá para ultrapassar pela contramão, mas os carros vêm de frente</li>' +
     '<li><span>🤘</span>EMPINA: segure para dar grau e ganhar bônus; virar fica difícil e, se passar do tempo ou bater, você cai</li>' +
     '<li><span>↪️</span>Nas curvas a moto é jogada para fora: vire para dentro ou freie</li>' +
@@ -481,7 +497,9 @@ function nextOffer() {
     '<h2>' + order.rest + '</h2><p>' + order.items + '</p>' +
     '<dl><dt>Circuito</dt><dd>' + circuit.name + '</dd>' +
     '<dt>Traçado</dt><dd>' + circuit.desc + '</dd>' +
-    '<dt>Entregar em</dt><dd>' + order.dest + '</dd>' +
+    '<dt>' + (stops.length > 1 ? '1º cliente' : 'Entregar em') + '</dt><dd>' + (stops.length > 1 ? order.dest2 : order.dest) + '</dd>' +
+    (stops.length > 1 ? '<dt>2º cliente</dt><dd>' + order.dest + '</dd>' : '') +
+    '<dt>Caixinha</dt><dd>se sobrar ' + Math.ceil(tipLimit) + ' s ou mais</dd>' +
     '<dt>Distância</dt><dd>' + order.dist + ' m</dd>' +
     '<dt>Prazo</dt><dd>' + order.time + ' s' + (prevT > order.time ? ' (−' + (prevT - order.time) + ' s)' : '') + '</dd>' +
     '<dt>Valor da corrida</dt><dd class="big">' + brl(order.pay) + '</dd></dl>' +
@@ -489,7 +507,7 @@ function nextOffer() {
 }
 function startPlay() {
   state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on'); wheelBtn.classList.add('on'); wheelHeld = false;
-  $('tDest').textContent = order.dest; touches.clear(); keys = {}; hudCache = {};
+   touches.clear(); keys = {}; hudCache = {};
   $('hL').classList.add('on'); $('hR').classList.add('on');
   setTimeout(() => { $('hL').classList.remove('on'); $('hR').classList.remove('on'); }, 3500);
   updateHud();
@@ -497,16 +515,17 @@ function startPlay() {
 }
 function finishDelivery() {
   state = 'result'; delivered++;
-  const bonusT = timeLeft * 0.12, tip = food >= 90 ? 3 : 0;
+  const bonusT = timeLeft * 0.12, tip = timeLeft >= tipLimit ? 4 + level : 0;
   const total = (order.pay + bonusT) * (0.5 + 0.5 * food / 100) + tip + stunt;
   money += total;
   beep(660, 0.12, 'square', 0.08); beep(880, 0.12, 'square', 0.08, 0.13); beep(1320, 0.25, 'square', 0.08, 0.26);
   show('<span class="tag" style="background:var(--ok)">Entregue no prazo</span>' +
-    '<h2>' + (food >= 90 ? 'Cliente feliz!' : food >= 50 ? 'Pedido entregue' : 'Chegou… meio amassado') + '</h2>' +
+    '<h2>' + (tip ? '🎁 Ganhou caixinha!' : food >= 50 ? 'Pedido entregue' : 'Chegou… meio amassado') + '</h2>' +
+    '<p>' + (tip ? 'Entrega rápida: sobrou ' + timeLeft.toFixed(1).replace('.', ',') + ' s de ' + order.time + ' s.' : 'Sem caixinha: era preciso sobrar ' + Math.ceil(tipLimit) + ' s e sobrou ' + timeLeft.toFixed(1).replace('.', ',') + ' s.') + '</p>' +
     '<dl><dt>Corrida</dt><dd>' + brl(order.pay) + '</dd>' +
     '<dt>Bônus de tempo (' + timeLeft.toFixed(1).replace('.', ',') + ' s)</dt><dd>' + brl(bonusT) + '</dd>' +
     '<dt>Estado do pedido</dt><dd>' + Math.round(food) + '%</dd>' +
-    '<dt>Gorjeta</dt><dd>' + brl(tip) + '</dd>' +
+    '<dt>Caixinha do cliente</dt><dd>' + brl(tip) + '</dd>' +
     '<dt>Bônus de grau</dt><dd>' + brl(stunt) + '</dd>' +
     '<dt>Total desta entrega</dt><dd class="big">' + brl(total) + '</dd>' +
     '<dt>Ganhos do turno</dt><dd>' + brl(money) + '</dd></dl>' +
@@ -522,7 +541,7 @@ function gameOver(why) {
   beep(220, 0.3, 'sawtooth', 0.08); beep(160, 0.5, 'sawtooth', 0.08, 0.28);
   show('<span class="tag" style="background:var(--red);color:#fff">Fim do turno</span>' +
     '<h2>' + (why === 'time' ? 'Pedido atrasado' : 'Pedido destruído') + '</h2>' +
-    '<p>' + (why === 'time' ? 'O prazo acabou a ' + Math.max(1, Math.round((finishZ - pos) / 100)) + ' m do cliente.' : 'A comida não sobreviveu ao trajeto.') + '</p>' +
+    '<p>' + (why === 'time' ? 'O prazo acabou a ' + Math.max(1, Math.round((nextStop().z - pos) / 100)) + ' m do cliente.' : 'A comida não sobreviveu ao trajeto.') + '</p>' +
     '<dl><dt>Entregas concluídas</dt><dd>' + delivered + '</dd>' +
     '<dt>Ganhos do turno</dt><dd class="big">' + brl(money) + '</dd></dl>' +
     (rec ? '<p style="color:var(--yel);font-weight:700">Novo recorde!</p>' : '') +
@@ -663,7 +682,18 @@ function update(dt) {
     const lo = GEAR_KMH[gear - 1], hi = gear < 5 ? GEAR_KMH[gear] : 100;
     eng.frequency.value = 62 + gear * 9 + clamp((speed * 0.036 - lo) / (hi - lo), 0, 1) * 70;
   }
-  if (pos >= finishZ) { timeLeft = Math.max(0, timeLeft); if (engGain) engGain.gain.value = 0; finishDelivery(); return; }
+  const c = nextStop();
+  if (pos > c.z - ZONE_BACK && pos <= c.z + ZONE_FWD && speed <= STOP_V && px >= 0.45) {       // parou ao lado do cliente
+    c.done = true; stopIdx++;
+    beep(880, 0.1, 'square', 0.08); beep(1175, 0.16, 'square', 0.08, 0.1);
+    if (stopIdx >= stops.length) { timeLeft = Math.max(0, timeLeft); if (engGain) engGain.gain.value = 0; finishDelivery(); return; }
+    toast('Entregue! ' + stopIdx + '/' + stops.length, '#7dffb0');
+  } else if (pos > c.z + ZONE_FWD) {                     // passou direto: o cliente espera 90 m adiante
+    const a = segSprites[Math.floor(c.z / SEG)]; if (a) { const i = a.indexOf(c); if (i >= 0) a.splice(i, 1); }
+    c.z = pos + 9000; addSprite(Math.floor(c.z / SEG), c);
+    if (c === stops[stops.length - 1]) finishZ = c.z;
+    toast('Passou do cliente! Pare adiante', '#ff8a8d');
+  }
   if (food <= 0) { if (engGain) engGain.gain.value = 0; gameOver('food'); return; }
   if (timeLeft <= 0) { timeLeft = 0; if (engGain) engGain.gain.value = 0; gameOver('time'); return; }
 }
@@ -674,8 +704,14 @@ function updateHud() {
   const t = Math.max(0, Math.ceil(timeLeft));
   setTxt('tTime', String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'));
   $('hc').classList.toggle('low', timeLeft < 10);
-  const left = Math.max(0, finishZ - pos) / 100;
-  setTxt('tDist', 'DISTÂNCIA: ' + (left >= 1000 ? (left / 1000).toFixed(2).replace('.', ',') + ' km' : Math.ceil(left) + ' m'));
+  const ns = nextStop(), left = Math.max(0, ns.z - pos) / 100, near = left < 130;
+  const lbl = left >= 1000 ? (left / 1000).toFixed(2).replace('.', ',') + ' km' : Math.ceil(left) + ' m';
+  setTxt('tDist', near ? 'PARE NO CLIENTE: ' + lbl : 'DISTÂNCIA: ' + lbl);
+  $('hc').classList.toggle('stop', near);
+  setTxt('tDest', (stops.length > 1 ? 'Cliente ' + Math.min(stopIdx + 1, stops.length) + '/' + stops.length + ' · ' : '') + (stops.length > 1 && stopIdx === 0 ? order.dest2 : order.dest));
+  const tl = Math.max(0, Math.ceil(timeLeft - tipLimit)), tipOn = timeLeft >= tipLimit;
+  setTxt('tTip', tipOn ? '🎁 caixinha: faltam ' + tl + ' s' : '🎁 caixinha perdida');
+  $('tTip').classList.toggle('lost', !tipOn);
   setTxt('tMoney', brl(money));
   const prog = clamp((pos - START) / (finishZ - START) * 100, 0, 100);
   setTxt('tFood', 'PEDIDO ' + Math.round(food) + '%');
@@ -750,6 +786,7 @@ function drawRoad(n, k) {
   ctx.fillRect(0, y2, W, y1 - y2 + 1);
   q(x1, y1, w1, x2, y2, w2, -1, 1, asph);
   if (!cross) { q(x1, y1, w1, x2, y2, w2, 1.0, 1.03, '#dcd9d0'); q(x1, y1, w1, x2, y2, w2, -1.03, -1.0, '#dcd9d0'); }
+  if (state !== 'menu') { const c = nextStop(), kz = k * SEG; if (!c.done && kz >= c.z - ZONE_BACK - SEG && kz < c.z + ZONE_FWD) q(x1, y1, w1, x2, y2, w2, 0.46, 0.995, k & 1 ? '#ffd100' : '#c79f00'); }
   if (!near) return;
   q(x1, y1, w1, x2, y2, w2, -0.02, -0.008, '#e3b93a');
   q(x1, y1, w1, x2, y2, w2, 0.008, 0.02, '#e3b93a');
@@ -1050,8 +1087,24 @@ function drawRider() {
   ctx.restore();
 }
 
+function drawCust(o) {               // cliente esperando na calçada, com marcador visível de longe
+  if (o.z - camZ < 70) return;
+  drawPed(o);
+  P(o.x * ROAD, 0, o.z); const x = _x, y = _y, s = _s;
+  if (offX(x)) return;
+  const cur = o === nextStop() && !o.done;
+  if (!o.done) {                    // braço acenando
+    ctx.strokeStyle = o.skin; ctx.lineWidth = Math.max(1, 10 * s); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x + 22 * s, y - 134 * s); ctx.lineTo(x + (38 + Math.sin(tAnim * 9) * 14) * s, y - 190 * s); ctx.stroke();
+  } else { ctx.fillStyle = '#10a880'; ctx.fillRect(x + 18 * s, y - 92 * s, 30 * s, 34 * s); }   // sacola entregue
+  const r = Math.max(4, 46 * s), my = y - 250 * s - r - Math.abs(Math.sin(tAnim * 5)) * 30 * s;
+  ctx.fillStyle = o.done ? '#2fbf71' : cur ? '#ffd100' : '#9aa0a8'; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, r * 0.14);
+  ctx.beginPath(); ctx.moveTo(x, my + r * 1.9); ctx.lineTo(x - r * 0.8, my + r * 0.55); ctx.arc(x, my, r, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  if (r > 6) { ctx.fillStyle = '#111'; ctx.font = '900 ' + r * 1.2 + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.done ? '✓' : String(o.n), x, my + r * 0.08); }
+}
 function spriteAt(o) {
   switch (o.t) {
+    case 'cust': drawCust(o); break;
     case 'me': drawRider(); break;
     case 'car': case 'on': drawCar(o); break;
     case 'bus': drawBus(o); break;
@@ -1104,7 +1157,7 @@ function drawMinimap() {
     hx.fillStyle = '#e3b93a'; hx.fillRect(xc - 0.6, y, 1.2, sh);
   }
   // rota até o destino (segue o traçado)
-  const zEnd = Math.min(finishZ, pos + 15500);
+  const zEnd = Math.min(nextStop().z, pos + 15500);
   hx.strokeStyle = '#2b7de9'; hx.lineWidth = 2.4; hx.lineCap = 'round'; hx.lineJoin = 'round';
   hx.beginPath(); hx.moveTo(mx + px * ROAD * kx, py);
   for (let z = pos + 600; z < zEnd; z += 600) hx.lineTo(Xz(z) + 0.5 * ROAD * kx, Yz(z));
@@ -1191,7 +1244,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, time: order.time, circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, time: order.time, circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
