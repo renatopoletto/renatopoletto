@@ -494,15 +494,19 @@ function buildLevel(lv) {
   if (maspAt >= 2) addSprite(maspAt * BLOCK + 2, { t:'sign', x:1.1, z:(maspAt * BLOCK + 2) * SEG, name:'MASP', red:true });
 
   // mobiliário urbano e gente na calçada
+  // painel de publicidade: onde houver um, nada pode tampar a visão dele (sem árvore nem poste na frente)
+  const isMupi = (k, s) => { const mb = blocks[s][Math.floor(k / BLOCK)];
+    return k >= 2 && !!mb && !mb.gap && mb.style !== 'tun' && mb.style !== 'masp' && (k + (s ? 7 : 0)) % 14 === 4 && stopSegs.every(ss => Math.abs(k - ss) > 9); };
+  const clearOfMupi = (k, s, before, after) => { for (let d = -after; d <= before; d++) if (isMupi(k + d, s)) return false; return true; };
   for (let k = 2; k < nseg; k++) {
     const bi = Math.floor(k / BLOCK);
     for (let s = 0; s < 2; s++) {
       const bl = blocks[s][bi], sg = s ? 1 : -1;
       if (!bl || bl.gap || bl.style === 'tun') continue;
-      if ((k + (s ? 3 : 5)) % circuit.trees === 0 && bl.style !== 'masp') addSprite(k, { t:'tree', x:sg * 1.12, z:k * SEG + 150, r:rnd(0.8, 1.2) });
-      if ((k + (s ? 7 : 0)) % 14 === 4 && bl.style !== 'masp' && stopSegs.every(ss => Math.abs(k - ss) > 9)) addSprite(k, { t:'mupi', x:sg * 1.15, z:k * SEG + 150, b:(Math.floor(k / 14) + s * 2) % 3 });   // rodízio Keeta, McDonald's, Coca-Cola
-      if (bl.style === 'park') for (let i = 0; i < 2; i++) addSprite(k, { t:'tree', x:sg * rnd(1.3, 3.6), z:k * SEG + rnd(0, SEG), r:rnd(0.9, 1.5) });
-      if (k % 10 === (s ? 0 : 5)) addSprite(k, { t:'pole', x:sg * 1.05, z:k * SEG + 150, sg });
+      if ((k + (s ? 3 : 5)) % circuit.trees === 0 && bl.style !== 'masp' && clearOfMupi(k, s, 6, 1)) addSprite(k, { t:'tree', x:sg * 1.12, z:k * SEG + 150, r:rnd(0.8, 1.2) });
+      if (isMupi(k, s)) addSprite(k, { t:'mupi', x:sg * 1.07, z:k * SEG + 150, b:(Math.floor(k / 14) + s * 2) % 3 });   // rodízio Keeta, McDonald's, Coca-Cola
+      if (bl.style === 'park') for (let i = 0; i < 2; i++) addSprite(k, { t:'tree', x:sg * rnd(clearOfMupi(k, s, 6, 1) ? 1.3 : 2.0, 3.6), z:k * SEG + rnd(0, SEG), r:rnd(0.9, 1.5) });   // perto de painel, as árvores da praça ficam recuadas
+      if (k % 10 === (s ? 0 : 5)) addSprite(k, { t:'pole', x:sg * 1.36, z:k * SEG + 150, sg });
       const np = Math.random() < 0.55 ? rint(1, 3) : 0;
       for (let i = 0; i < np; i++) addSprite(k, newPed(k * SEG + rnd(0, SEG), sg * rnd(1.09, 1.38), 0));
     }
