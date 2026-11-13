@@ -134,6 +134,7 @@
   .btn { display:block; width:100%; margin-top:14px; padding:16px; border:0; border-radius:14px; background:var(--yel);
     color:#111; font-size:18px; font-weight:900; letter-spacing:.02em; touch-action:manipulation; }
   .btn:active { transform:scale(.98); filter:brightness(.92); }
+  .mlogo { display:inline-block; width:1.3em; height:1.3em; background:#DA291C; vertical-align:-0.28em; } .mlogo svg { display:block; width:100%; height:100%; }
   .btn2 { display:block; width:100%; margin-top:10px; padding:11px; border:2px solid #ffd100 !important; background:#17181c; color:#ffd100;
     font-size:14px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; touch-action:manipulation; }
   .row2 { display:flex; gap:8px; } .row2 .btn2 { flex:1; }
@@ -208,12 +209,12 @@ const STREETS = ['R. da Consolação','R. Bela Cintra','R. Haddock Lobo','R. Aug
 const DESTS = ['Rua Augusta, 1508','Alameda Santos, 1293','Rua Haddock Lobo, 595','Rua Bela Cintra, 986',
   'Rua Pamplona, 145','Alameda Campinas, 463','Rua Peixoto Gomide, 707','Av. Brig. Luís Antônio, 2344',
   'Rua da Consolação, 2302','Al. Joaquim Eugênio de Lima, 680'];
-const RESTS = ['Pastel da Dona Cida','Temaki do Zé','Burger do Vão','Açaí Trianon','Marmitex Paulistana',
-  'Esfiha Bela Vista','Pizza da Brigadeiro','Coxinha 24h'];
-const ITEMS = [['2x pastel de carne','Pastel de queijo','Caldo de cana','Vinagrete'], ['Temaki de salmão','Temaki de atum','Shoyu e wasabi','Hashi'],
-  ['X-salada duplo','Batata frita','Refrigerante lata','Maionese da casa'], ['Açaí 700 ml','Granola extra','Leite em pó','Colher'],
-  ['Marmita de feijoada','Arroz','Couve refogada','Laranja'], ['10 esfihas de carne','Esfiha de queijo','Limão','Guardanapos'],
-  ['Pizza meia calabresa','Meia mussarela','Refrigerante 2 L','Orégano'], ['Coxinha com catupiry','Kibe','Refrigerante lata','Pimenta']];
+const RESTS = ["McDonald's"];
+const ITEMS = [['Big Mac', 'McFritas média', 'Coca-Cola 500 ml', 'McShake de chocolate'], ['Cheeseburger', 'Cheeseburger', 'Coca-Cola 300 ml', 'McFritas pequena'],
+  ['Quarterão com Queijo', 'McFritas grande', 'Coca-Cola Zero 500 ml', 'Torta de maçã'], ['McChicken', 'Chicken McNuggets 6 un.', 'Coca-Cola 500 ml', 'McShake de morango'],
+  ['Big Mac', 'Cheeseburger', 'McShake de baunilha', 'Coca-Cola 500 ml'], ['Big Tasty', 'McFritas média', 'Coca-Cola 500 ml', 'McFlurry'],
+  ['Cheddar McMelt', 'Chicken McNuggets 10 un.', 'Coca-Cola Zero 500 ml', 'McShake de chocolate'], ['McLanche Feliz', 'Cheeseburger', 'McFritas pequena', 'Coca-Cola 300 ml']];
+const MLOGO = '<span class="mlogo"><svg viewBox="0 0 100 100"><path d="M12 84 C12 -14 46 -14 50 62 C54 -14 88 -14 88 84" fill="none" stroke="#FFC72C" stroke-width="13"/></svg></span>';
 const SHOPS = ['PADARIA','DROGARIA','BANCO','LANCHONETE','MERCADO','FARMÁCIA','AÇAÍ','PASTELARIA','ÓTICA','PAPELARIA',
   'BARBEARIA','LOTÉRICA','RESTAURANTE','CAFÉ','SAPATARIA','HORTIFRUTI'];
 const SIGN_COLS = [['#f4efe2','#b3262b'],['#c9272b','#ffffff'],['#f1c21b','#1b2f6b'],['#1d6b45','#ffffff'],['#f4efe2','#1d4f9c'],['#e8762c','#ffffff']];
@@ -368,8 +369,8 @@ function makePhase(lv) {
   const n = lv >= 2 ? 2 : 1, L = n === 1 ? 1000 : Math.min(750 + 50 * (lv - 2), 1000);
   const nCheck = Math.min(4, 2 + Math.floor((lv - 1) / 2)), list = [];
   for (let j = 0; j < n; j++) {
-    const i = (lv - 1 + j * 3) % RESTS.length;
-    list.push({ rest: RESTS[i], items: ITEMS[i].slice(0, nCheck), dest: DESTS[(lv * 3 + 1 + j * 4) % DESTS.length], dist: L, pay: 8 + lv * 1.5 });
+    const i = (lv - 1 + j * 3) % ITEMS.length;
+    list.push({ rest: RESTS[0], items: ITEMS[i].slice(0, nCheck), dest: DESTS[(lv * 3 + 1 + j * 4) % DESTS.length], dist: L, pay: 8 + lv * 1.5 });
   }
   return { list, prep: Math.min(2 + 0.4 * (lv - 1), 5), total: n * L };
 }
@@ -410,6 +411,7 @@ function buildLevel(lv) {
     if (stopSegs.every(ss => ss < b0 * BLOCK - 22 || ss > (b0 + TUN) * BLOCK + 12)) tun0 = b0;
   }
   const inTun = b => b >= tun0 && b < tun0 + TUN;
+  const storeBlocks = stopZ.filter((z, i) => i % 2 === 0).map(z => Math.floor(z / SEG / BLOCK));
   const maspAt = circuit.name === 'Av. Paulista' ? Math.floor(finSeg / BLOCK * 0.45) : -9;
   for (let b = 0; b < nb; b++) {
     const gap = b === nextCross && !inTun(b) && stopSegs.every(ss => Math.abs(b * BLOCK - ss) > 14) && b !== maspAt && b !== maspAt + 1;
@@ -419,8 +421,10 @@ function buildLevel(lv) {
       const bl = { gap, low, h: gap ? 0 : (low ? rint(2, 4) : rint(6, 18)) * FH + 120, col, style:'b',
         glass: !low && Math.random() < 0.45, awn: pick(AWN), shop: pick(SHOPS), sc: pick(SIGN_COLS) };
       if (masp) { bl.style = 'masp'; bl.h = 2400; bl.low = false; bl.first = b === maspAt; bl.last = b === maspAt + 1; }
+      const store = s === 1 && storeBlocks.includes(b);
+      if (store) { bl.shop = "McDONALD'S"; bl.sc = ['#da291c', '#ffc72c']; bl.awn = '#da291c'; }
       if (inTun(b)) { bl.style = 'tun'; bl.h = 520; bl.low = false; }
-      else if (!gap && !masp && b > 1) {                   // praça/parque: sem prédio, só árvores
+      else if (!gap && !masp && !store && b > 1) {                   // praça/parque: sem prédio, só árvores
         const prev = blocks[s][b - 1], trianon = s === 0 && maspAt >= 2 && (b === maspAt || b === maspAt + 1);
         if (trianon || Math.random() < (prev && prev.style === 'park' ? 0.4 : circuit.park) && stopSegs.every(ss => Math.abs(b * BLOCK - ss) > 12)) bl.style = 'park';
       }
@@ -497,7 +501,7 @@ function buildLevel(lv) {
   stops = []; stopIdx = 0; prep = null;
   stopZ.forEach((z, i) => {
     const c = newPed(z, 1.07, 0);
-    c.t = 'cust'; c.kind = i % 2 ? 'cli' : 'loja'; c.n = i % 2 ? (i + 1) / 2 : 'L'; c.done = false; c.shirt = i % 2 ? '#ffffff' : '#10a880';
+    c.t = 'cust'; c.kind = i % 2 ? 'cli' : 'loja'; c.n = i % 2 ? (i + 1) / 2 : 'M'; c.done = false; c.shirt = i % 2 ? '#ffffff' : '#10a880';
     stops.push(c); addSprite(Math.floor(z / SEG), c);
   });
   tipLimit = TIP_LIMIT;
@@ -689,7 +693,7 @@ function nextOffer() {
   const n = phase.list.length;
   show('<span class="tag">🔔 Novo pedido · Fase ' + level + ' · ' + pal.name + '</span>' +
     '<div class="oclock" id="oClock">' + fmtClock(timeLeft) + '</div><p class="osub">Entrega em até 28 min · o relógio já está correndo</p>' +
-    '<h2>' + order.rest + '</h2><p>' + order.items.join(' · ') + '</p>' +
+    '<h2>' + MLOGO + ' ' + order.rest + '</h2><p>' + order.items.join(' · ') + '</p>' +
     '<dl><dt>1. Retirar em</dt><dd>' + order.rest + '</dd>' +
     '<dt>2. Entregar em</dt><dd>' + order.dest + '</dd>' +
     '<dt>Nesta fase</dt><dd>' + (n > 1 ? n + ' entregas, 28 min cada' : '1 entrega em 28 min') + '</dd>' +
@@ -812,7 +816,7 @@ function moveStop(c, z) {            // reposiciona uma parada (loja ou cliente)
 function startPrep() {
   prep = { t: phase.prep, ready: false, left: order.items.length };
   speed = 0; wOn = false; touches.clear();
-  $('pTitle').textContent = 'Retirada · ' + order.rest;
+  $('pTitle').innerHTML = MLOGO + ' Retirada · ' + order.rest;
   $('pStat').textContent = 'Preparando o pedido…'; $('pBar').style.width = '0%';
   const list = $('pList'); list.innerHTML = '';
   order.items.forEach(it => {
@@ -833,7 +837,7 @@ function startPrep() {
 }
 function startOffer(doneN) {               // segundo pedido da fase: entra com o relógio de 28:00 já correndo
   prep = { mode: 'offer' }; speed = 0; wOn = false; touches.clear();
-  $('pTitle').textContent = '🔔 Novo pedido · ' + order.rest;
+  $('pTitle').innerHTML = '🔔 Novo pedido · ' + MLOGO + ' ' + order.rest;
   $('pStat').textContent = ''; $('pBar').style.width = '0%';
   const list = $('pList'); list.innerHTML = '';
   const ok = document.createElement('small'); ok.style.color = '#7dffb0'; ok.textContent = '✓ Entrega ' + doneN + ' concluída em ' + doneList[doneList.length - 1].took; list.appendChild(ok);
@@ -1425,8 +1429,21 @@ function drawRider() {
   ctx.restore();
 }
 
+function arches(x, yBase, w, h) {     // arcos dourados
+  ctx.strokeStyle = '#ffc72c'; ctx.lineWidth = Math.max(1, w * 0.13); ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.ellipse(x - w / 4, yBase, w / 4, h, 0, Math.PI, 0); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(x + w / 4, yBase, w / 4, h, 0, Math.PI, 0); ctx.stroke();
+}
 function drawCust(o) {               // cliente esperando na calçada, com marcador visível de longe
   if (o.z - camZ < 70) return;
+  if (o.kind === 'loja') {            // totem da loja ao lado do atendente
+    P(o.x * ROAD + 170, 0, o.z + 80); const tx = _x, ty = _y, ts = _s, q2 = 210 * ts;
+    if (!offX(tx)) {
+      ctx.fillStyle = '#55585e'; ctx.fillRect(tx - 8 * ts, ty - 540 * ts, 16 * ts, 540 * ts);
+      ctx.fillStyle = '#da291c'; ctx.fillRect(tx - q2 / 2, ty - 540 * ts - q2, q2, q2);
+      arches(tx, ty - 540 * ts - q2 * 0.16, q2 * 0.72, q2 * 0.64);
+    }
+  }
   drawPed(o);
   P(o.x * ROAD, 0, o.z); const x = _x, y = _y, s = _s;
   if (offX(x)) return;
@@ -1436,9 +1453,10 @@ function drawCust(o) {               // cliente esperando na calçada, com marca
     ctx.beginPath(); ctx.moveTo(x + 22 * s, y - 134 * s); ctx.lineTo(x + (38 + Math.sin(tAnim * 9) * 14) * s, y - 190 * s); ctx.stroke();
   } else { ctx.fillStyle = '#10a880'; ctx.fillRect(x + 18 * s, y - 92 * s, 30 * s, 34 * s); }   // sacola entregue
   const r = Math.max(4, 46 * s), my = y - 250 * s - r - Math.abs(Math.sin(tAnim * 5)) * 30 * s;
-  ctx.fillStyle = o.done ? '#2fbf71' : cur ? '#ffd100' : '#9aa0a8'; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, r * 0.14);
+  const loja = o.kind === 'loja';
+  ctx.fillStyle = o.done ? '#2fbf71' : cur ? (loja ? '#da291c' : '#ffd100') : '#9aa0a8'; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, r * 0.14);
   ctx.beginPath(); ctx.moveTo(x, my + r * 1.9); ctx.lineTo(x - r * 0.8, my + r * 0.55); ctx.arc(x, my, r, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
-  if (r > 6) { ctx.fillStyle = '#111'; ctx.font = '900 ' + r * 1.2 + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.done ? '✓' : String(o.n), x, my + r * 0.08); }
+  if (r > 6) { ctx.fillStyle = loja && !o.done ? '#ffc72c' : '#111'; ctx.font = '900 ' + r * 1.2 + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.done ? '✓' : String(o.n), x, my + r * 0.08); }
 }
 function spriteAt(o) {
   switch (o.t) {
@@ -1514,9 +1532,10 @@ function drawMinimap() {
   let dx = Xz(zEnd) + 0.5 * ROAD * kx, dy = Yz(zEnd);
   const ddx = dx - mx, ddy = dy - my, dd = Math.hypot(ddx, ddy), lim = r - 15;
   if (dd > lim) { dx = mx + ddx / dd * lim; dy = my + ddy / dd * lim; }
-  hx.fillStyle = '#ffd100'; hx.strokeStyle = '#111'; hx.lineWidth = 1.2;
+  const isLoja = nextStop().kind === 'loja';
+  hx.fillStyle = isLoja ? '#da291c' : '#ffd100'; hx.strokeStyle = '#111'; hx.lineWidth = 1.2;
   hx.beginPath(); hx.moveTo(dx, dy + 3); hx.lineTo(dx - 6, dy - 6); hx.arc(dx, dy - 9, 7, Math.PI * 0.85, Math.PI * 0.15); hx.closePath(); hx.fill(); hx.stroke();
-  hx.fillStyle = '#111'; hx.font = '900 9px system-ui,sans-serif'; hx.textAlign = 'center'; hx.textBaseline = 'middle'; hx.fillText(nextStop().kind === 'loja' ? 'L' : 'K', dx, dy - 8.5);
+  hx.fillStyle = '#111'; hx.font = '900 9px system-ui,sans-serif'; hx.textAlign = 'center'; hx.textBaseline = 'middle'; if (isLoja) hx.fillStyle = '#ffc72c'; hx.fillText(isLoja ? 'M' : 'K', dx, dy - 8.5);
   // jogador
   const ax = mx + px * ROAD * kx;
   hx.fillStyle = '#1f6fe0'; hx.strokeStyle = '#fff'; hx.lineWidth = 1.5;
