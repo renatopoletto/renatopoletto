@@ -13,7 +13,10 @@
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { margin:0; height:100%; background:#000; overflow:hidden; overscroll-behavior:none;
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-user-select:none; user-select:none; touch-action:none; }
+    -webkit-user-select:none; user-select:none; touch-action:none; -webkit-touch-callout:none; -webkit-text-size-adjust:100%; }
+  button { -webkit-appearance:none; appearance:none; margin:0; }
+  #err { position:fixed; left:8px; right:8px; bottom:8px; z-index:99; display:none; background:#b00020; color:#fff; font:12px/1.35 monospace; padding:8px; white-space:pre-wrap; word-break:break-word; }
+  noscript { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; text-align:center; padding:24px; background:#111; color:#ffd100; font:16px/1.4 sans-serif; }
   #game, #hudcv { position:fixed; inset:0; width:100%; height:100%; display:block; }
   #game { image-rendering:crisp-edges; image-rendering:pixelated; }
   #hudcv { pointer-events:none; }
@@ -153,6 +156,8 @@
 </style>
 </head>
 <body>
+<noscript>Este jogo precisa de JavaScript. No iPhone, abra pelo Safari em um endereço https (a pré-visualização de arquivos não executa o jogo).</noscript>
+<div id="err"></div>
 <canvas id="game"></canvas>
 <canvas id="hudcv"></canvas>
 <div id="probe"></div>
@@ -183,6 +188,10 @@
 <script>
 (() => {
 'use strict';
+// mostra na tela qualquer erro de script, para diagnóstico no celular
+function showErr(m) { try { const e = document.getElementById('err'); e.style.display = 'block'; e.textContent = (e.textContent ? e.textContent + '\n' : 'Erro no jogo (envie esta mensagem):\n') + m; } catch (x) {} }
+window.addEventListener('error', ev => showErr((ev.message || 'erro') + ' @' + (ev.lineno || '?') + ':' + (ev.colno || '?')));
+window.addEventListener('unhandledrejection', ev => showErr('promise: ' + (ev.reason && ev.reason.message || ev.reason)));
 
 /* ================= constantes do mundo (1 unidade = 1 cm) ================= */
 const SEG = 300;          // comprimento de um segmento de pista (3 m)
@@ -259,7 +268,7 @@ const MAPC = ['#cfe3b4','#f2c7c0','#f6dfae','#c9daf0','#e3d3ee'];
 
 /* ================= canvas / câmera ================= */
 const cv = document.getElementById('game'), hcv = document.getElementById('hudcv');
-const ctx = cv.getContext('2d', { alpha:false, willReadFrequently:true });
+const ctx = cv.getContext('2d', { alpha:false, willReadFrequently:true }) || cv.getContext('2d');
 const hx = hcv.getContext('2d');
 let rc = ctx;                                  // contexto usado por rr()
 let W = 0, H = 0, FW = 0, FHH = 0, PXS = 3, DPR = 1, S = 400, cx = 0, hy = 0, CAMH = 300, U = 1;
@@ -285,8 +294,11 @@ function resize() {
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v / 16 - 0.47) * 16);
 const Q6 = new Uint8ClampedArray(384);
 for (let i = 0; i < 384; i++) Q6[i] = Math.round(Math.max(0, Math.min(255, i - 64)) / 51) * 51;
+let paletteOk = true;
 function to8bit() {
-  const img = ctx.getImageData(0, 0, W, H), d = img.data;
+  if (!paletteOk) return;
+  let img; try { img = ctx.getImageData(0, 0, W, H); } catch (e) { paletteOk = false; return; }
+  const d = img.data;
   for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) {
     const t = BAYER[(y & 3) * 4 + (x & 3)] + 64;
     d[i] = Q6[(d[i] + t) | 0]; d[i + 1] = Q6[(d[i + 1] + t) | 0]; d[i + 2] = Q6[(d[i + 2] + t) | 0];
@@ -294,7 +306,9 @@ function to8bit() {
   ctx.putImageData(img, 0, 0);
 }
 window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+window.addEventListener('orientationchange', () => { setTimeout(resize, 200); setTimeout(resize, 600); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+window.addEventListener('pageshow', resize);
 resize();
 
 /* ================= utilidades ================= */
@@ -788,6 +802,11 @@ window.addEventListener('keyup', e => { keys[e.code] = false; });
 ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => initAudio(), true));   // qualquer toque destrava o áudio
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault());
+document.addEventListener('touchmove', e => { if (!e.target.closest || !e.target.closest('#ui')) e.preventDefault(); }, { passive:false });   // sem rolagem elástica fora dos menus
+let lastTouchEnd = 0;
+document.addEventListener('touchend', e => { const t = Date.now(); if (t - lastTouchEnd < 320 && !(e.target.closest && e.target.closest('button'))) e.preventDefault(); lastTouchEnd = t; }, { passive:false });
 $('full').addEventListener('click', toggleFull);
 wheelBtn.addEventListener('pointerdown', e => { wheelHeld = true; wheelBtn.classList.add('down'); try { wheelBtn.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
 const wup = () => { wheelHeld = false; wheelBtn.classList.remove('down'); };
@@ -1186,7 +1205,7 @@ function drawShop(o) {               // placa da loja na fachada, letra a letra 
   ctx.fillStyle = sc[0]; ctx.beginPath(); ctx.moveTo(xa, ya0); ctx.lineTo(xa, ya1); ctx.lineTo(xb, yb1); ctx.lineTo(xb, yb0); ctx.fill();
   if (Math.abs(ya0 - ya1) < 5) return;
   const name = o.bl.shop, N = name.length, step = (o.z1 - o.z0) / N;
-  ctx.fillStyle = sc[1]; ctx.font = '900 100px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillStyle = sc[1]; ctx.font = '900 100px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   for (let i = 0; i < N; i++) {
     // lado direito: a leitura vai do fundo para perto; lado esquerdo: de perto para o fundo
     const za = o.side ? o.z1 - i * step : o.z0 + i * step, zb = o.side ? za - step : za + step;
@@ -1313,7 +1332,7 @@ function drawBusTxt(o) {
   P(LANES[2] * ROAD, 0, o.z); const hpx = yb - yt, wpx = 285 * _s;
   if (hpx < 2.5) return;
   ctx.save(); ctx.translate(_x, (yb + yt) / 2); ctx.scale(wpx / 420, hpx / 78);
-  ctx.fillStyle = 'rgba(240,240,236,.92)'; ctx.font = '900 100px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(240,240,236,.92)'; ctx.font = '900 100px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('ÔNIBUS', 0, 0, 420); ctx.restore();
 }
 function drawTree(o) {
@@ -1347,7 +1366,7 @@ function drawSign(o) {
   ctx.fillStyle = '#5c6066'; ctx.fillRect(x - 4 * s, y - 330 * s, 8 * s, 330 * s);
   ctx.fillStyle = o.red ? '#c8242b' : '#1d4f9c'; rr(x - pw / 2, y - 330 * s - ph, pw, ph, 8 * s); ctx.fill();
   if (pw > 46) {
-    ctx.fillStyle = '#fff'; ctx.font = '700 ' + Math.max(6, 40 * s) + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff'; ctx.font = '700 ' + Math.max(6, 40 * s) + 'px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(o.name, x, y - 330 * s - ph / 2, pw * 0.9);
   }
 }
@@ -1359,7 +1378,7 @@ function drawFinish(o) {
   ctx.fillStyle = '#222'; ctx.fillRect(xl - 12 * sc, y - 640 * sc, 24 * sc, 640 * sc); ctx.fillRect(xr - 12 * sc, y - 640 * sc, 24 * sc, 640 * sc);
   ctx.fillStyle = '#ffd100'; ctx.fillRect(xl, y - 640 * sc, xr - xl, 170 * sc);
   if ((xr - xl) > 50) {
-    ctx.fillStyle = '#111'; ctx.font = '900 ' + Math.max(7, 120 * sc) + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#111'; ctx.font = '900 ' + Math.max(7, 120 * sc) + 'px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('ENTREGA AQUI', (xl + xr) / 2, y - 555 * sc, (xr - xl) * 0.9);
   }
   drawPed({ x: 1.12, z: o.z, vx: 1, ph: 0, shirt: '#ffffff', skin: '#d9a57b', pants: '#2b2d42' });
@@ -1405,7 +1424,7 @@ function drawRider() {
   R(-17, 56, 34, 26, 7, K);
   R(-10, 62, 20, 9, 3, '#e3262e');
   R(-11, 38, 22, 13, 2, '#ececec');
-  T('SP 2026', 44.5, '700 6px system-ui,sans-serif', '#222', 20);
+  T('SP 2026', 44.5, '700 6px Helvetica,Arial,sans-serif', '#222', 20);
   // pernas (calça escura) e botas
   L(PT, 15, [-13, 86, -29, 60, -27, 30]); L(PT, 15, [13, 86, 29, 60, 27, 30]);
   R(-35, 16, 16, 16, 5, K); R(19, 16, 16, 16, 5, K);
@@ -1426,7 +1445,7 @@ function drawRider() {
   ctx.restore();
   ctx.strokeStyle = GD; ctx.lineWidth = 1.6; rr(-26, 88, 52, 56, 6); ctx.stroke();
   ctx.strokeStyle = K; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-23, 136.5); ctx.lineTo(23, 136.5); ctx.stroke();
-  T('keeta', 119, '900 17px system-ui,sans-serif', '#111', 40);
+  T('keeta', 119, '900 17px Helvetica,Arial,sans-serif', '#111', 40);
   ctx.restore();
 }
 
@@ -1457,7 +1476,7 @@ function drawCust(o) {               // cliente esperando na calçada, com marca
   const loja = o.kind === 'loja';
   ctx.fillStyle = o.done ? '#2fbf71' : cur ? (loja ? '#da291c' : '#ffd100') : '#9aa0a8'; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, r * 0.14);
   ctx.beginPath(); ctx.moveTo(x, my + r * 1.9); ctx.lineTo(x - r * 0.8, my + r * 0.55); ctx.arc(x, my, r, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
-  if (r > 6) { ctx.fillStyle = loja && !o.done ? '#ffc72c' : '#111'; ctx.font = '900 ' + r * 1.2 + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.done ? '✓' : String(o.n), x, my + r * 0.08); }
+  if (r > 6) { ctx.fillStyle = loja && !o.done ? '#ffc72c' : '#111'; ctx.font = '900 ' + r * 1.2 + 'px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.done ? '✓' : String(o.n), x, my + r * 0.08); }
 }
 function spriteAt(o) {
   switch (o.t) {
@@ -1536,7 +1555,7 @@ function drawMinimap() {
   const isLoja = nextStop().kind === 'loja';
   hx.fillStyle = isLoja ? '#da291c' : '#ffd100'; hx.strokeStyle = '#111'; hx.lineWidth = 1.2;
   hx.beginPath(); hx.moveTo(dx, dy + 3); hx.lineTo(dx - 6, dy - 6); hx.arc(dx, dy - 9, 7, Math.PI * 0.85, Math.PI * 0.15); hx.closePath(); hx.fill(); hx.stroke();
-  hx.fillStyle = '#111'; hx.font = '900 9px system-ui,sans-serif'; hx.textAlign = 'center'; hx.textBaseline = 'middle'; if (isLoja) hx.fillStyle = '#ffc72c'; hx.fillText(isLoja ? 'M' : 'K', dx, dy - 8.5);
+  hx.fillStyle = '#111'; hx.font = '900 9px Helvetica,Arial,sans-serif'; hx.textAlign = 'center'; hx.textBaseline = 'middle'; if (isLoja) hx.fillStyle = '#ffc72c'; hx.fillText(isLoja ? 'M' : 'K', dx, dy - 8.5);
   // jogador
   const ax = mx + px * ROAD * kx;
   hx.fillStyle = '#1f6fe0'; hx.strokeStyle = '#fff'; hx.lineWidth = 1.5;
@@ -1559,9 +1578,9 @@ function drawSpeedo() {
   hx.fillStyle = '#39f08a'; hx.textBaseline = 'alphabetic'; hx.textAlign = 'right';
   hx.font = '900 ' + 34 * U + 'px "Courier New",ui-monospace,Menlo,monospace';
   hx.shadowColor = '#39f08a'; hx.shadowBlur = 6; hx.fillText(String(Math.round(kmh)).padStart(2, '0'), x + w * 0.62, y + h - 10 * U); hx.shadowBlur = 0;
-  hx.font = '700 ' + 12 * U + 'px system-ui,sans-serif'; hx.textAlign = 'left'; hx.fillStyle = '#b8f7d2';
+  hx.font = '700 ' + 12 * U + 'px Helvetica,Arial,sans-serif'; hx.textAlign = 'left'; hx.fillStyle = '#b8f7d2';
   hx.fillText('km/h', x + w * 0.66, y + h - 11 * U);
-  hx.font = '900 ' + 13 * U + 'px system-ui,sans-serif'; hx.fillStyle = '#ffd100';
+  hx.font = '900 ' + 13 * U + 'px Helvetica,Arial,sans-serif'; hx.fillStyle = '#ffd100';
   hx.fillText(gear + 'ª', x + w * 0.66, y + h - 27 * U);
   rc = ctx;
 }
