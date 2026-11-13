@@ -55,6 +55,13 @@
   @keyframes blink { 50% { opacity:.35; } }
   #tDist { display:block; font-size:10.5px; letter-spacing:.05em; margin-top:2px; color:#eaf2f8; font-variant-numeric:tabular-nums; }
   #tDest { display:block; font-size:9px; color:#ffd100; max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:1px auto 0; }
+  #sig { position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 118px); transform:translateX(-50%); display:none; align-items:center; gap:6px;
+    background:rgba(8,10,14,.88); border:2px solid #000; box-shadow:3px 3px 0 #000; padding:5px 9px; pointer-events:none; color:#fff; }
+  #sig.on { display:flex; }
+  #sig i { width:14px; height:14px; border-radius:50%; background:#2a2c33; }
+  #sig.r i:nth-child(1) { background:#ff2d2d; box-shadow:0 0 8px #ff2d2d; } #sig.y i:nth-child(2) { background:#ffd21f; box-shadow:0 0 8px #ffd21f; } #sig.g i:nth-child(3) { background:#2fe06a; box-shadow:0 0 8px #2fe06a; }
+  #sig b { font-size:11px; letter-spacing:.05em; margin-left:2px; }
+  @media (orientation:landscape) { #sig { top:auto; bottom:calc(env(safe-area-inset-bottom) + 14px); } }
   #tTip { display:block; font-size:9px; margin-top:1px; color:#7dffb0; white-space:nowrap; }
   #tTip.lost { color:#8a8f98; text-decoration:line-through; }
   #hc.stop #tDist { color:#ffd100; font-weight:800; }
@@ -176,6 +183,7 @@
   <div id="hr"><div id="tMoney">R$ 0,00</div><div class="rowb"><button id="full" aria-label="Tela cheia">⛶</button><button id="mute" aria-label="Som">🔊</button></div></div>
 </div>
 
+<div id="sig"><i></i><i></i><i></i><b id="sigT"></b></div>
 <div class="hint" id="hL">◀</div>
 <div class="hint" id="hR">▶</div>
 <button id="brake">FREIO</button>
@@ -339,7 +347,7 @@ let order = null, phase = null, oi = 0, doneList = [], pal = PAL[0];   // pedido
 let nseg = 0, cw = null, curve = null, circuit = CIRCUITS[0], segSprites = null, blocks = [[], []];
 let gear = 1, shiftT = 0, skyOff = 0;
 let stops = [], stopIdx = 0, tipLimit = 0;      // clientes da fase, o próximo e o tempo-limite da caixinha
-const TS = 16;                                   // 1 segundo real = 16 segundos do relógio do jogo (28 min = 105 s)
+const TS = 14;                                   // 1 segundo real = 14 segundos do relógio do jogo (28 min = 120 s, já contando as paradas no semáforo)
 const LIMIT = 28 * 60 / TS;                      // 28 minutos do jogo = 84 s reais, igual em todas as fases
 const TIP_LIMIT = 8 * 60 / TS;                   // caixinha: entregar em até 20 min (sobrando 8)
 const CANCEL = 15 * 60 / TS;                     // mais de 15 min de atraso: pedido cancelado
@@ -352,7 +360,7 @@ const TIERS = [{ n:'Bronze', v:0, c:'#cd7f32' }, { n:'Prata', v:150, c:'#c9d2d8'
 const UPG = [{ id:'bau', n:'Baú térmico', d:'−15% de dano no pedido por nível' }, { id:'freio', n:'Freio a disco', d:'+20% de frenagem por nível' },
   { id:'pneu', n:'Pneu reforçado', d:'buraco tira menos pedido e velocidade' }, { id:'motor', n:'Motor revisado', d:'retoma a velocidade mais rápido (máxima segue 60 km/h)' }];
 const UPG_COST = [30, 70, 150];
-const BONUS = [{ id:'nohit', t:'Termine a fase sem nenhuma batida', s:'sem bater', v:6 }, { id:'care', t:'Entregue todos os pedidos com 90% ou mais', s:'pedidos 90%+', v:5 },
+const BONUS = [{ id:'nohit', t:'Termine a fase sem batidas nem infrações', s:'sem batida nem infração', v:6 }, { id:'care', t:'Entregue todos os pedidos com 90% ou mais', s:'pedidos 90%+', v:5 },
   { id:'ontime', t:'Faça todas as entregas no prazo', s:'tudo no prazo', v:4 }];
 // Cupons: troque esta lista pelos códigos reais fornecidos pela marca. "need" = entregas seguidas no prazo num mesmo turno.
 // Itens com demo:true aparecem marcados como demonstração, sem valor real.
@@ -372,6 +380,15 @@ function newTurn() { level = START_LEVEL - 1; money = 0; delivered = 0; streak =
 const ZONE_BACK = 1500, ZONE_FWD = 600, STOP_V = 560;   // zona de entrega (cm) e velocidade máxima para entregar (20 km/h)
 const nextStop = () => stops[Math.min(stopIdx, stops.length - 1)];
 let yieldCount = 0;
+// semáforos: verde 12 s, amarelo 2 s, vermelho 10 s. Pedestre só atravessa no vermelho dos veículos
+const T_G = 12, T_Y = 2, T_R = 10, T_CYC = T_G + T_Y + T_R;
+let lights = [], laneCars = [], pli = 0, infractions = 0;
+function lightState(L) {             // estado do semáforo: st = 'g' | 'y' | 'r'; el = tempo no estado; rem = tempo que falta
+  const ph = (tAnim + L.off) % T_CYC;
+  if (ph < T_G) return { st:'g', el: ph, rem: T_G - ph };
+  if (ph < T_G + T_Y) return { st:'y', el: ph - T_G, rem: T_G + T_Y - ph };
+  return { st:'r', el: ph - T_G - T_Y, rem: T_CYC - ph };
+}
 let yielding = false, yieldMsg = -9, dHits = 0, bCare = true;   // preferência ao pedestre; batidas da entrega atual
 let wheelie = 0, wHold = 0, wCool = 0, wOn = false, stunt = 0, stuntT = 0;   // empinada
 const W_MAX = 3.2;        // segundos que dá para segurar a roda no ar
@@ -424,7 +441,7 @@ function buildLevel(lv) {
     for (let i = 0; i < len && k + i < nseg; i++) curve[k + i] = c * Math.sin(Math.PI * (i + 0.5) / len);
     k += len; dir = circuit.alt ? -dir : (Math.random() < 0.5 ? -1 : 1);
   }
-  cars = []; peds = []; oncoming = [];
+  cars = []; peds = []; oncoming = []; lights = []; laneCars = LANES.map(() => []); pli = 0; infractions = 0;
 
   // quarteirões
   const nb = Math.ceil((nseg + 2) / BLOCK);
@@ -446,7 +463,7 @@ function buildLevel(lv) {
       const bl = { gap, low, h: gap ? 0 : (low ? rint(2, 4) : rint(6, 18)) * FH + 120, col, style:'b',
         glass: !low && Math.random() < 0.45, awn: pick(AWN), shop: pick(SHOPS), sc: pick(SIGN_COLS) };
       if (masp) { bl.style = 'masp'; bl.h = 2400; bl.low = false; bl.first = b === maspAt; bl.last = b === maspAt + 1; }
-      const store = s === 1 && storeBlocks.includes(b);
+      const store = s === 0 && storeBlocks.includes(b);
       if (store) { bl.shop = "McDONALD'S"; bl.sc = ['#da291c', '#ffc72c']; bl.awn = '#da291c'; }
       if (inTun(b)) { bl.style = 'tun'; bl.h = 520; bl.low = false; }
       else if (!gap && !masp && !store && b > 1) {                   // praça/parque: sem prédio, só árvores
@@ -464,10 +481,12 @@ function buildLevel(lv) {
       for (let i = 3; i <= 5; i++) cw[k + i] = 1;
       addSprite(k + 1, { t:'sign', x:1.1, z:(k + 1) * SEG + 100, name });
       st++;
+      const L = { t:'light', z:(k + 3) * SEG - 170, off: rnd(0, T_CYC) };      // linha de retenção antes da faixa
+      lights.push(L); addSprite(k + 2, L);
       const np = 2 + Math.min(lv, 5);
       for (let i = 0; i < np; i++) {
-        const dir = Math.random() < 0.5 ? -1 : 1;
-        peds.push(newPed((k + 3) * SEG + rnd(40, 3 * SEG - 40), rnd(-1.1, 1.1), dir * rnd(110, 170) / ROAD));
+        const side = Math.random() < 0.5 ? -1 : 1, pd = newPed((k + 3) * SEG + rnd(40, 3 * SEG - 40), side * rnd(1.08, 1.2), 0);
+        pd.side = side; pd.sp = rnd(245, 290) / ROAD; pd.L = L; pd.walking = false; peds.push(pd);
       }
       nextCross = b + rint(5, 8);
     } else if (b === nextCross) nextCross++;
@@ -509,14 +528,15 @@ function buildLevel(lv) {
     for (let z = START + rnd(4500, 9000); z < finishZ + 4000; z += rnd(gMin, gMax)) {
       const bus = l === BUS_LANE && Math.random() < 0.6;
       const taxi = !bus && Math.random() < 0.15;
-      cars.push({ t: bus ? 'bus' : 'car', z, zp: z, x: LANES[l] + rnd(-0.025, 0.025), v: LANE_V[l] * rnd(0.97, 1.03),
-        hw: (bus ? 128 : 92) / ROAD, len: bus ? 1150 : 430, col: bus ? pick(['#2f5fa8','#8b2f3a','#3d7a52','#c9772b']) : taxi ? '#f4f4f4' : pick(CAR_COLS), taxi });
+      const car = { t: bus ? 'bus' : 'car', z, zp: z, li: 0, cur: 0, x: LANES[l] + rnd(-0.025, 0.025), v: LANE_V[l] * rnd(0.97, 1.03),
+        hw: (bus ? 128 : 92) / ROAD, len: bus ? 1150 : 430, col: bus ? pick(['#2f5fa8','#8b2f3a','#3d7a52','#c9772b']) : taxi ? '#f4f4f4' : pick(CAR_COLS), taxi };
+      cars.push(car); laneCars[l].push(car);
       if (bus) z += 1500;
     }
   }
   stops = []; stopIdx = 0; prep = null;
   stopZ.forEach((z, i) => {
-    const c = newPed(z, 1.07, 0);
+    const c = newPed(z, -1.07, 0);                        // loja e clientes ficam na calçada da esquerda
     c.t = 'cust'; c.kind = i % 2 ? 'cli' : 'loja'; c.n = i % 2 ? (i + 1) / 2 : 'M'; c.done = false; c.shirt = i % 2 ? '#ffffff' : '#10a880';
     stops.push(c); addSprite(Math.floor(z / SEG), c);
   });
@@ -679,7 +699,7 @@ function showCoupons() {
 function show(html, onGo, sub) {
   if (!sub) curScreen = { html, onGo };
   card.innerHTML = html; ui.classList.remove('off'); ui.scrollTop = 0;
-  hud.classList.remove('on'); brakeBtn.classList.remove('on'); wheelBtn.classList.remove('on'); $('prep').classList.remove('on');
+  hud.classList.remove('on'); brakeBtn.classList.remove('on'); wheelBtn.classList.remove('on'); $('prep').classList.remove('on'); $('sig').className = '';
   const b = card.querySelector('.btn');
   if (b) b.addEventListener('click', () => { initAudio(); if (!fullAsked) { fullAsked = true; goFull(); } beep(660, 0.08, 'square', 0.06); onGo(); }, { once:true });
 }
@@ -696,7 +716,9 @@ function showMenu() {
     '<ul class="how">' +
     '<li><span>⏱️</span>Cada entrega tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
     '<li><span>👆</span>Avenida de mão única: toque no lado esquerdo ou direito para trocar de faixa; FREIO para frear</li>' +
-    '<li><span>🚶</span>Pedestre tem preferência: a moto para sozinha na faixa</li>' +
+    '<li><span>🚦</span>Sinal vermelho: pare antes da linha e só siga no verde. Avançar é infração</li>' +
+    '<li><span>🚶</span>Pedestre atravessa no sinal vermelho e tem preferência</li>' +
+    '<li><span>🙋</span>Loja e clientes ficam na calçada da esquerda; a faixa da direita é dos ônibus</li>' +
     '<li><span>🛡</span>Entrega sem batida rende bônus de direção segura</li>' +
     '<li><span>🔥</span>Entregas seguidas no prazo multiplicam a corrida: 1,2x, 1,5x e 2x</li>' +
     '<li><span>🎁</span>Em até 20 min tem caixinha; passou de 28, o cliente ganha desconto</li>' +
@@ -761,7 +783,7 @@ function finishDelivery() {            // fim da fase: resumo de todas as entreg
     '<dl>' + rows +
     '<dt>Caixinhas</dt><dd>' + brl(tips) + '</dd>' +
     '<dt>★ ' + bonus.t + '</dt><dd>' + (bOk ? brl(bVal) : 'não cumprida') + '</dd>' +
-    '<dt>🛡 Direção segura (entregas sem batida)</dt><dd>' + brl(doneList.reduce((a, x) => a + x.safe, 0)) + '</dd>' +
+    '<dt>🛡 Direção segura (sem batida nem sinal vermelho)</dt><dd>' + brl(doneList.reduce((a, x) => a + x.safe, 0)) + '</dd>' +
     (ti ? '<dt>Bônus da categoria ' + TIERS[ti].n + '</dt><dd>+' + ti * 5 + '% já incluído</dd>' : '') +
     '<dt>Total da fase</dt><dd class="big">' + brl(total) + '</dd>' +
     '<dt>Ganhos do turno</dt><dd>' + brl(money) + '</dd></dl>' +
@@ -931,15 +953,36 @@ function update(dt) {
   pos += speed * dt;
   let front = pos + BIKE_LEN;
 
+  // trânsito: cada carro respeita o semáforo e o carro da frente
+  for (let l = 0; l < laneCars.length; l++) {
+    const arr = laneCars[l];
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const c = arr[i]; c.zp = c.z; let nz = c.z + c.v * dt;
+      while (c.li < lights.length && c.z + c.len > lights[c.li].z + 60) c.li++;
+      const L = lights[c.li];
+      if (L) { const st = lightState(L).st, gap = L.z - (c.z + c.len); if (st === 'r' || (st === 'y' && gap > 1200)) nz = Math.min(nz, L.z - 90 - c.len); }
+      if (i < arr.length - 1) nz = Math.min(nz, arr[i + 1].z - c.len - 260);
+      c.z = Math.max(c.z, nz); c.cur = dt > 0 ? (c.z - c.zp) / dt : c.v;
+    }
+  }
+  // semáforo do jogador: cruzar a linha no vermelho é infração
+  { const PL = lights[pli];
+    if (PL) {
+      if (prevFront <= PL.z && front > PL.z && lightState(PL).st === 'r') {
+        infractions++; bHits++; dHits++;
+        const fine = Math.min(5, money); if (fine > 0) { money -= fine; prof.wallet = Math.max(0, prof.wallet - fine); saveProf(); }
+        toast('Sinal vermelho! Infração −' + brl(5), '#ff8a8d'); flash(); beep(180, 0.3, 'sawtooth', 0.09);
+      }
+      if (front > PL.z + 60) pli++;
+    } }
   // veículos no mesmo sentido
   for (let i = 0; i < cars.length; i++) {
     const c = cars[i];
-    c.zp = c.z; c.z += c.v * dt;
     if (c.z + c.len < pos - 200 || c.z > pos + 3000) continue;
     const lim = c.hw + P_HW + 0.006;
     if (Math.abs(px - c.x) < lim && front > c.z - 10 && pos < c.z + c.len) {
       if (prevFront <= c.zp + 60) {                      // batida na traseira
-        speed = Math.min(speed, c.v * 0.4);
+        speed = Math.min(speed, c.cur * 0.4);
         pos = c.z - BIKE_LEN - 30; front = pos + BIKE_LEN;
         hurt(18, c.t === 'bus' ? 'Bateu no ônibus!' : 'Bateu no carro!', true);
       } else {                                           // raspou de lado
@@ -961,9 +1004,15 @@ function update(dt) {
   yielding = false;
   for (let i = 0; i < peds.length; i++) {
     const p = peds[i];
-    p.x += p.vx * dt; if (p.x > 1.3) { p.x = 1.3; p.vx = -p.vx; } else if (p.x < -1.3) { p.x = -1.3; p.vx = -p.vx; }
+    if (!p.walking) {
+      const ls = lightState(p.L);
+      if (ls.st === 'r' && ls.el > 1.2 && ls.rem > 2.25 / p.sp + 0.4) { p.walking = true; p.vx = -p.side * p.sp; }
+    } else {
+      p.x += p.vx * dt;
+      if (p.x * -p.side >= 1.1) { p.side = -p.side; p.x = p.side * rnd(1.08, 1.2); p.walking = false; p.vx = 0; }
+    }
     const dzp = p.z - front;
-    if (dzp > -40 && Math.abs(px - p.x) < 0.09 && dzp < speed * speed / 6400 + 550) {
+    if (Math.abs(p.x) < 1.0 && dzp > -40 && Math.abs(px - p.x) < 0.09 && dzp < speed * speed / 6400 + 550) {
       yielding = true; speed = Math.max(0, speed - 3600 * dt);
       if (dzp < 70) { speed = 0; pos = Math.min(pos, p.z - BIKE_LEN - 70); front = pos + BIKE_LEN; }
       if (tAnim - yieldMsg > 4) { yieldMsg = tAnim; yieldCount++; toast('Preferência ao pedestre', '#7dffb0'); }
@@ -991,7 +1040,7 @@ function update(dt) {
     eng.frequency.value = 62 + gear * 9 + clamp((speed * 0.036 - lo) / (hi - lo), 0, 1) * 70;
   }
   const c = nextStop();
-  if (pos > c.z - ZONE_BACK && pos <= c.z + ZONE_FWD && speed <= STOP_V && px >= 0.45) {       // parou na área amarela
+  if (pos > c.z - ZONE_BACK && pos <= c.z + ZONE_FWD && speed <= STOP_V && px <= -0.45) {       // parou na área amarela
     if (c.kind === 'loja') { startPrep(); return; }
     c.done = true; stopIdx++;
     beep(880, 0.1, 'square', 0.08); beep(1175, 0.16, 'square', 0.08, 0.1);
@@ -1016,8 +1065,13 @@ function updateHud() {
   $('hc').classList.toggle('late', timeLeft < 0);
   const ns = nextStop(), left = Math.max(0, ns.z - pos) / 100, near = left < 130, loja = ns.kind === 'loja';
   const lbl = left >= 1000 ? (left / 1000).toFixed(2).replace('.', ',') + ' km' : Math.ceil(left) + ' m';
-  setTxt('tDist', (near ? (loja ? 'PARE NA LOJA: ' : 'PARE NO CLIENTE: ') : (loja ? 'LOJA A ' : 'CLIENTE A ')) + lbl);
-  $('hc').classList.toggle('stop', near);
+  const PL = lights[pli], ld = PL ? (PL.z - pos - BIKE_LEN) / 100 : 9999, lst = PL ? lightState(PL).st : 'g';
+  const sig = ld > 0 && ld < 90 && lst !== 'g' && ld < left;    // o sinal fechado vem antes do aviso de parada
+  const sg = $('sig'), sgOn = ld > -3 && ld < 140;
+  sg.className = sgOn ? 'on ' + lst : '';
+  if (sgOn) setTxt('sigT', lst === 'r' ? 'PARE' : lst === 'y' ? 'ATENÇÃO' : 'SIGA');
+  setTxt('tDist', sig ? (lst === 'r' ? '🔴 SINAL VERMELHO A ' : '🟡 SINAL AMARELO A ') + Math.ceil(ld) + ' m' : (near ? (loja ? 'PARE NA LOJA: ' : 'PARE NO CLIENTE: ') : (loja ? 'LOJA A ' : 'CLIENTE A ')) + lbl);
+  $('hc').classList.toggle('stop', near || sig);
   setTxt('tDest', (phase.list.length > 1 ? 'Entrega ' + (oi + 1) + '/' + phase.list.length + ' · ' : '') + (loja ? 'RETIRAR · ' + order.rest : 'ENTREGAR · ' + order.dest));
   const tipOn = timeLeft >= tipLimit;
   setTxt('tTip', tipOn ? '🎁 caixinha por mais ' + fmtClock(timeLeft - tipLimit) : timeLeft >= 0 ? '🎁 caixinha perdida' : 'desconto ao cliente: ' + Math.round(lateDisc(timeLeft) * 100) + '%');
@@ -1101,7 +1155,7 @@ function drawRoad(n, k) {
   for (let sd = 0; sd < 2; sd++) { const pb = blocks[sd][Math.floor(k / BLOCK)]; if (pb && pb.style === 'park') q(x1, y1, w1, x2, y2, w2, sd ? 1.38 : -40, sd ? 40 : -1.38, k & 1 ? '#5f9a4f' : '#578f48'); }
   q(x1, y1, w1, x2, y2, w2, -1, 1, asph);
   if (!cross) { q(x1, y1, w1, x2, y2, w2, 1.0, 1.03, '#dcd9d0'); q(x1, y1, w1, x2, y2, w2, -1.03, -1.0, '#dcd9d0'); }
-  if (state !== 'menu') { const c = nextStop(), kz = k * SEG; if (!c.done && kz >= c.z - ZONE_BACK - SEG && kz < c.z + ZONE_FWD) q(x1, y1, w1, x2, y2, w2, 0.46, 0.995, k & 1 ? '#ffd100' : '#c79f00'); }
+  if (state !== 'menu') { const c = nextStop(), kz = k * SEG; if (!c.done && kz >= c.z - ZONE_BACK - SEG && kz < c.z + ZONE_FWD) q(x1, y1, w1, x2, y2, w2, -0.995, -0.46, k & 1 ? '#ffd100' : '#c79f00'); }
   if (!near) return;
   if (cw[k]) {
     for (let x = -0.96; x < 0.95; x += 0.15) q(x1, y1, w1, x2, y2, w2, x, x + 0.075, '#ecece8');
@@ -1239,8 +1293,8 @@ function shadow(xc, hw, z0, z1) {
   P(xc - hw, 0, z0); const a = _x, ay = _y; P(xc + hw, 0, z0); const b = _x; P(xc + hw, 0, z1); const c = _x, cy = _y; P(xc - hw, 0, z1); const d = _x;
   ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.moveTo(a, ay); ctx.lineTo(b, ay); ctx.lineTo(c, cy); ctx.lineTo(d, cy); ctx.fill();
 }
-const lights = [], beams = [];        // luzes da noite, desenhadas depois do escurecimento
-function lamp(xw, yw, z, r, col) { if (!pal.night || z - camZ < 60) return; P(xw, yw, z); lights.push(_x, _y, Math.max(1.2, r * _s), col); }
+const lightsFx = [], beams = [];        // luzes da noite, desenhadas depois do escurecimento
+function lamp(xw, yw, z, r, col) { if (!pal.night || z - camZ < 60) return; P(xw, yw, z); lightsFx.push(_x, _y, Math.max(1.2, r * _s), col); }
 function beam(xc, z0, z1, w0, w1, a) {
   if (!pal.night || z1 - camZ < 120 || z0 - camZ > 14000) return;
   z0 = Math.max(z0, camZ + 90);
@@ -1256,13 +1310,13 @@ function drawLights() {
     g.addColorStop(0, 'rgba(255,236,170,' + beams[i + 6] + ')'); g.addColorStop(1, 'rgba(255,236,170,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(beams[i], beams[i + 1]); ctx.lineTo(beams[i + 2], beams[i + 1]); ctx.lineTo(beams[i + 3], beams[i + 4]); ctx.lineTo(beams[i + 5], beams[i + 4]); ctx.fill();
   }
-  for (let i = 0; i < lights.length; i += 4) {
-    const x = lights[i], y = lights[i + 1], r = lights[i + 2], c = lights[i + 3];
+  for (let i = 0; i < lightsFx.length; i += 4) {
+    const x = lightsFx[i], y = lightsFx[i + 1], r = lightsFx[i + 2], c = lightsFx[i + 3];
     ctx.fillStyle = 'rgba(' + c + ',.22)'; ctx.beginPath(); ctx.arc(x, y, r * 3, 0, 7); ctx.fill();
     ctx.fillStyle = 'rgba(' + c + ',.95)'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
   }
   ctx.globalCompositeOperation = 'source-over';
-  lights.length = 0; beams.length = 0;
+  lightsFx.length = 0; beams.length = 0;
 }
 function drawCar(c) {
   const z = c.z, xc = c.x * ROAD, front = c.t === 'on';
@@ -1364,7 +1418,7 @@ function drawPole(o) {
   const ax = -o.sg * 170 * s;                      // braço da luminária para o lado da rua
   ctx.fillRect(Math.min(x, x + ax), y - 790 * s, Math.abs(ax), 8 * s);
   ctx.fillStyle = pal.night ? '#fff3b0' : '#d9dbe0'; ctx.fillRect(x + ax - 28 * s, y - 792 * s, 56 * s, 14 * s);
-  if (pal.night) lights.push(x + ax, y - 785 * s, Math.max(1, 15 * s), '255,240,170');
+  if (pal.night) lightsFx.push(x + ax, y - 785 * s, Math.max(1, 15 * s), '255,240,170');
 }
 function drawSign(o) {
   if (o.z - camZ < 70) return;
@@ -1464,7 +1518,7 @@ function arches(x, yBase, w, h) {     // arcos dourados
 function drawCust(o) {               // cliente esperando na calçada, com marcador visível de longe
   if (o.z - camZ < 70) return;
   if (o.kind === 'loja') {            // totem da loja ao lado do atendente
-    P(o.x * ROAD + 170, 0, o.z + 80); const tx = _x, ty = _y, ts = _s, q2 = 210 * ts;
+    P(o.x * ROAD - 170, 0, o.z + 80); const tx = _x, ty = _y, ts = _s, q2 = 210 * ts;
     if (!offX(tx)) {
       ctx.fillStyle = '#55585e'; ctx.fillRect(tx - 8 * ts, ty - 540 * ts, 16 * ts, 540 * ts);
       if (imOk(IM.mcd)) { const tw = 250 * ts, th = tw * IM.mcd.naturalHeight / IM.mcd.naturalWidth; ctx.fillStyle = '#fafafa'; ctx.fillRect(tx - tw / 2 - 6 * ts, ty - 540 * ts - th - 12 * ts, tw + 12 * ts, th + 12 * ts); ctx.drawImage(IM.mcd, tx - tw / 2, ty - 540 * ts - th - 6 * ts, tw, th); }
@@ -1513,8 +1567,30 @@ function drawMupi(o, lit) {          // painel de mobiliário urbano: moldura es
     else { ctx.fillStyle = '#fff'; ctx.font = 'italic 900 ' + w * 0.2 + 'px Georgia,serif'; ctx.fillText('Coca-Cola', x, top + h * 0.45, w * 0.92); }
   }
 }
+function drawLight(o) {
+  if (o.z - camZ < 90) return;
+  const st = lightState(o).st;
+  // linha de retenção
+  P(-0.985 * ROAD, 0, o.z - 45); const ax = _x, ay = _y; P(0.985 * ROAD, 0, o.z - 45); const bx = _x;
+  P(0.985 * ROAD, 0, o.z); const cx2 = _x, cy = _y; P(-0.985 * ROAD, 0, o.z); const dx = _x;
+  ctx.fillStyle = '#f1f1ee'; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, ay); ctx.lineTo(cx2, cy); ctx.lineTo(dx, cy); ctx.fill();
+  for (let j = 0; j < 4; j++) {                  // um semáforo em cada calçada, antes e depois da faixa
+    const sd = j & 1 ? 1 : -1;
+    P(sd * 1.07 * ROAD, 0, o.z + (j > 1 ? 1250 : 0)); const x = _x, y = _y, s = _s;
+    if (150 * s < 3 || offX(x)) continue;
+    ctx.fillStyle = '#3d4046'; ctx.fillRect(x - 7 * s, y - 470 * s, 14 * s, 470 * s);
+    ctx.fillStyle = '#17181b'; ctx.fillRect(x - 30 * s, y - 520 * s, 60 * s, 150 * s);
+    const lamps = [['r', '#ff2d2d', '#4a1212'], ['y', '#ffd21f', '#4a3f0c'], ['g', '#2fe06a', '#0f3a1e']];
+    for (let i = 0; i < 3; i++) {
+      const on = lamps[i][0] === st, ly = y - (495 - i * 45) * s;
+      ctx.fillStyle = on ? lamps[i][1] : lamps[i][2]; ctx.beginPath(); ctx.arc(x, ly, Math.max(1, 17 * s), 0, 7); ctx.fill();
+      if (on && pal.night) lightsFx.push(x, ly, Math.max(1.2, 17 * s), i === 0 ? '255,45,45' : i === 1 ? '255,210,31' : '47,224,106');
+    }
+  }
+}
 function spriteAt(o) {
   switch (o.t) {
+    case 'light': drawLight(o); break;
     case 'mupi': drawMupi(o, false); break;
     case 'cust': drawCust(o); break;
     case 'me': drawRider(); break;
@@ -1571,8 +1647,10 @@ function drawMinimap() {
   const zEnd = Math.min(nextStop().z, pos + 15500);
   hx.strokeStyle = '#2b7de9'; hx.lineWidth = 2.4; hx.lineCap = 'round'; hx.lineJoin = 'round';
   hx.beginPath(); hx.moveTo(mx + px * ROAD * kx, py);
-  for (let z = pos + 600; z < zEnd; z += 600) hx.lineTo(Xz(z) + 0.5 * ROAD * kx, Yz(z));
+  for (let z = pos + 600; z < zEnd; z += 600) hx.lineTo(Xz(z) - 0.75 * ROAD * kx, Yz(z));
   hx.stroke();
+  for (let i = 0; i < lights.length; i++) { const L = lights[i]; if (L.z < pos - 6000 || L.z > pos + 16500) continue; const st = lightState(L).st;
+    hx.fillStyle = st === 'r' ? '#e5383b' : st === 'y' ? '#f1c21b' : '#2fbf71'; hx.strokeStyle = '#111'; hx.lineWidth = 1; hx.beginPath(); hx.arc(Xz(L.z) + ROAD * kx * 1.25, Yz(L.z), 3, 0, 7); hx.fill(); hx.stroke(); }
   // buracos, pedestres na pista e veículos
   for (let kk = ks - 10; kk < ks + 58; kk++) {
     const a = segSprites[kk]; if (!a) continue;
@@ -1584,7 +1662,7 @@ function drawMinimap() {
   for (let i = 0; i < cars.length; i++) veh(cars[i], cars[i].t === 'bus' ? '#2f5fa8' : '#4b4f57');
   for (let i = 0; i < oncoming.length; i++) veh(oncoming[i], '#9a9da3');
   // pino do destino: na posição real quando está no alcance; senão, preso à borda na direção da rota
-  let dx = Xz(zEnd) + 0.5 * ROAD * kx, dy = Yz(zEnd);
+  let dx = Xz(zEnd) - 0.75 * ROAD * kx, dy = Yz(zEnd);
   const ddx = dx - mx, ddy = dy - my, dd = Math.hypot(ddx, ddy), lim = r - 15;
   if (dd > lim) { dx = mx + ddx / dd * lim; dy = my + ddy / dd * lim; }
   const isLoja = nextStop().kind === 'loja';
@@ -1636,7 +1714,7 @@ function render() {
   }
   if (pal.overlay) { ctx.fillStyle = pal.overlay; ctx.fillRect(0, 0, W, H); }
   if (pal.night) { for (let i = 0; i < mupiGlow.length; i++) drawMupi(mupiGlow[i], true); mupiGlow.length = 0; drawLights(); riderPass = 1; drawRider(); riderPass = 0; }   // o entregador fica por cima do facho do próprio farol
-  else { lights.length = 0; beams.length = 0; }
+  else { lightsFx.length = 0; beams.length = 0; }
   to8bit();
   hx.clearRect(0, 0, FW, FHH);
   if (state === 'play') { drawMinimap(); drawSpeedo(); }
@@ -1658,7 +1736,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
