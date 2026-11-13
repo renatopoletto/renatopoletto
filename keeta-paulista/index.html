@@ -216,12 +216,30 @@ const BLD_COLS = ['#b9b1a2','#c9bfa8','#a7a59d','#d0c2a6','#b59f8a','#9ea5a8','#
 const SHIRTS = ['#e94f37','#3f88c5','#44af69','#f6ae2d','#8e5572','#f2f2f2','#33658a','#d7263d','#222'];
 const SKINS = ['#f1c9a5','#d9a57b','#a8724c','#7a4e2d','#5b3a22'];
 const CIRCUITS = [
-  { name:'Av. Paulista', desc:'retas longas, curvas leves', c:[2, 5], st:[28, 55], cl:[20, 40], low:0.25, alt:false },
-  { name:'Rua Augusta', desc:'curvas em S', c:[5, 10], st:[8, 20], cl:[16, 30], low:0.85, alt:true },
-  { name:'Rua da Consolação', desc:'curvas longas e rápidas', c:[4, 8], st:[14, 30], cl:[34, 60], low:0.55, alt:false },
-  { name:'Alameda Santos', desc:'curvas fechadas', c:[8, 14], st:[12, 26], cl:[10, 20], low:0.6, alt:false },
-  { name:'Av. Brig. Luís Antônio', desc:'curvas fortes em sequência', c:[7, 12], st:[6, 16], cl:[18, 34], low:0.7, alt:true }
+  { name:'Av. Paulista', desc:'retas longas, curvas leves', c:[2, 5], st:[28, 55], cl:[20, 40], low:0.25, trees:7, park:0, alt:false },
+  { name:'Rua Augusta', desc:'curvas em S, comércio de rua', c:[5, 10], st:[8, 20], cl:[16, 30], low:0.85, trees:9, park:0, alt:true,
+    cols:['#d9b38c','#c98f6b','#e3c9a1','#b9a08a','#d7a59a','#c7b9a0'] },
+  { name:'Rua da Consolação', desc:'curvas longas e rápidas', c:[4, 8], st:[14, 30], cl:[34, 60], low:0.55, trees:8, park:0.06, alt:false },
+  { name:'Alameda Santos', desc:'curvas fechadas', c:[8, 14], st:[12, 26], cl:[10, 20], low:0.6, trees:5, park:0, alt:false,
+    cols:['#aab4bd','#8f9aa6','#c3c9cf','#9fb0bf','#b7bcc2'] },
+  { name:'Av. Brig. Luís Antônio', desc:'curvas fortes em sequência', c:[7, 12], st:[6, 16], cl:[18, 34], low:0.7, trees:8, park:0, alt:true },
+  { name:'Av. Nove de Julho', desc:'curvas rápidas e um túnel', c:[4, 9], st:[16, 34], cl:[26, 46], low:0.4, trees:6, park:0.1, alt:false, tunnel:true },
+  { name:'Rua Oscar Freire', desc:'arborizada, curvas suaves', c:[3, 7], st:[10, 22], cl:[14, 26], low:0.9, trees:3, park:0.05, alt:true,
+    cols:['#efe6d6','#e2d5c0','#f3ead9','#d9cdb8','#ece0cc'] },
+  { name:'Av. Rebouças', desc:'larga e veloz, com túnel', c:[3, 7], st:[24, 44], cl:[30, 56], low:0.3, trees:6, park:0, alt:false, tunnel:true,
+    cols:['#8f969e','#a9a499','#7f8791','#6e7885','#9aa3a8'] },
+  { name:'Rua Frei Caneca', desc:'estreita no traçado, S apertado', c:[9, 14], st:[6, 14], cl:[10, 18], low:0.8, trees:9, park:0, alt:true,
+    cols:['#c9a07f','#b98d74','#d4b294','#a8876f','#c2a48c'] },
+  { name:'Av. Angélica', desc:'praças e curvas médias', c:[5, 9], st:[12, 26], cl:[20, 36], low:0.5, trees:4, park:0.12, alt:false }
 ];
+let circuitBag = [];
+function pickCircuit(lv) {           // fase 1 é sempre a Paulista; depois sorteia sem repetir até esgotar a lista
+  const forced = parseInt(new URLSearchParams(location.search).get('circuito'), 10);   // ?circuito=6 força um circuito (para testes)
+  if (forced >= 1 && forced <= CIRCUITS.length) return CIRCUITS[forced - 1];
+  if (lv === 1) { circuitBag = []; return CIRCUITS[0]; }
+  if (!circuitBag.length) { circuitBag = CIRCUITS.filter(c => c !== circuit); for (let i = circuitBag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [circuitBag[i], circuitBag[j]] = [circuitBag[j], circuitBag[i]]; } }
+  return circuitBag.pop();
+}
 const MAPC = ['#cfe3b4','#f2c7c0','#f6dfae','#c9daf0','#e3d3ee'];
 
 /* ================= canvas / câmera ================= */
@@ -324,6 +342,7 @@ function newPed(z, x, vx) {
 }
 
 function buildLevel(lv) {
+  setSong(lv - 1);
   phase = makePhase(lv); oi = 0; order = phase.list[0]; doneList = [];
   pal = PAL[(lv - 1) % PAL.length];
   finishZ = START + phase.total * 100;
@@ -333,7 +352,7 @@ function buildLevel(lv) {
   const stopSegs = stopZ.map(z => Math.ceil(z / SEG));
   cw = new Uint8Array(nseg + 2);
   segSprites = new Array(nseg + 2);
-  circuit = CIRCUITS[(lv - 1) % CIRCUITS.length];
+  circuit = pickCircuit(lv);
   curve = new Float32Array(nseg + DRAW + 4);
   for (let k = 14, dir = Math.random() < 0.5 ? -1 : 1; k < nseg; ) {
     k += rint(circuit.st[0], circuit.st[1]);
@@ -347,17 +366,28 @@ function buildLevel(lv) {
   const nb = Math.ceil((nseg + 2) / BLOCK);
   blocks = [[], []];
   let nextCross = rint(4, 6), st = rint(0, STREETS.length - 1);
+  let tun0 = -99; const TUN = 9;                           // túnel: 9 quarteirões seguidos, longe das paradas
+  if (circuit.tunnel) for (let tries = 0; tries < 40 && tun0 < 0; tries++) {
+    const b0 = rint(5, Math.max(6, Math.floor(finSeg / BLOCK) - TUN - 2));
+    if (stopSegs.every(ss => ss < b0 * BLOCK - 22 || ss > (b0 + TUN) * BLOCK + 12)) tun0 = b0;
+  }
+  const inTun = b => b >= tun0 && b < tun0 + TUN;
   const maspAt = circuit.name === 'Av. Paulista' ? Math.floor(finSeg / BLOCK * 0.45) : -9;
   for (let b = 0; b < nb; b++) {
-    const gap = b === nextCross && stopSegs.every(ss => Math.abs(b * BLOCK - ss) > 14) && b !== maspAt && b !== maspAt + 1;
+    const gap = b === nextCross && !inTun(b) && stopSegs.every(ss => Math.abs(b * BLOCK - ss) > 14) && b !== maspAt && b !== maspAt + 1;
     for (let s = 0; s < 2; s++) {
-      const col = pick(BLD_COLS), low = Math.random() < circuit.low;
+      const col = pick(circuit.cols || BLD_COLS), low = Math.random() < circuit.low;
       const masp = s === 1 && maspAt >= 2 && (b === maspAt || b === maspAt + 1);
       const bl = { gap, low, h: gap ? 0 : (low ? rint(2, 4) : rint(6, 18)) * FH + 120, col, style:'b',
         glass: !low && Math.random() < 0.45, awn: pick(AWN), shop: pick(SHOPS), sc: pick(SIGN_COLS) };
       if (masp) { bl.style = 'masp'; bl.h = 2400; bl.low = false; bl.first = b === maspAt; bl.last = b === maspAt + 1; }
+      if (inTun(b)) { bl.style = 'tun'; bl.h = 520; bl.low = false; }
+      else if (!gap && !masp && b > 1) {                   // praça/parque: sem prédio, só árvores
+        const prev = blocks[s][b - 1], trianon = s === 0 && maspAt >= 2 && (b === maspAt || b === maspAt + 1);
+        if (trianon || Math.random() < (prev && prev.style === 'park' ? 0.4 : circuit.park) && stopSegs.every(ss => Math.abs(b * BLOCK - ss) > 12)) bl.style = 'park';
+      }
       blocks[s].push(bl);
-      if (!gap && !masp && b > 0) {
+      if (!gap && bl.style === 'b' && b > 0) {
         const len = bl.shop.length * 62, zc = (b * BLOCK + BLOCK / 2) * SEG;
         addSprite(Math.floor((zc - len / 2) / SEG), { t:'shop', side:s, z:zc - len / 2, z0: zc - len / 2, z1: zc + len / 2, bl });
       }
@@ -382,8 +412,9 @@ function buildLevel(lv) {
     const bi = Math.floor(k / BLOCK);
     for (let s = 0; s < 2; s++) {
       const bl = blocks[s][bi], sg = s ? 1 : -1;
-      if (!bl || bl.gap) continue;
-      if (k % 7 === (s ? 3 : 5) && bl.style !== 'masp') addSprite(k, { t:'tree', x:sg * 1.12, z:k * SEG + 150, r:rnd(0.8, 1.2) });
+      if (!bl || bl.gap || bl.style === 'tun') continue;
+      if ((k + (s ? 3 : 5)) % circuit.trees === 0 && bl.style !== 'masp') addSprite(k, { t:'tree', x:sg * 1.12, z:k * SEG + 150, r:rnd(0.8, 1.2) });
+      if (bl.style === 'park') for (let i = 0; i < 2; i++) addSprite(k, { t:'tree', x:sg * rnd(1.3, 3.6), z:k * SEG + rnd(0, SEG), r:rnd(0.9, 1.5) });
       if (k % 10 === (s ? 0 : 5)) addSprite(k, { t:'pole', x:sg * 1.05, z:k * SEG + 150, sg });
       const np = Math.random() < 0.55 ? rint(1, 3) : 0;
       for (let i = 0; i < np; i++) addSprite(k, newPed(k * SEG + rnd(0, SEG), sg * rnd(1.09, 1.38), 0));
@@ -466,8 +497,8 @@ const TUNE = [[76, -1, 76, 74, 72, -1, 74, -1, 76, -1, 81, -1, 79, -1, 76, -1], 
   [79, -1, 79, 76, 72, -1, 76, -1, 79, -1, 84, -1, 83, -1, 79, -1], [74, -1, 79, -1, 83, -1, 81, 79, 76, -1, 74, -1, 71, -1, -1, -1]];
 let musGain = null, musAna = null, musStep = 0, musNext = 0, noiseBuf = null;
 function musLevel() { if (!musAna) return 0; const d = new Uint8Array(256); musAna.getByteTimeDomainData(d); let m = 0; for (let i = 0; i < 256; i++) m = Math.max(m, Math.abs(d[i] - 128)); return m / 128; }
-function musNote(freq, t, dur, vol) {
-  const o = AC.createOscillator(), g = AC.createGain(); o.type = 'square'; o.frequency.value = freq;
+function musNote(freq, t, dur, vol, wave) {
+  const o = AC.createOscillator(), g = AC.createGain(); o.type = wave || 'square'; o.frequency.value = freq;
   g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.linearRampToValueAtTime(0, t + dur);
   o.connect(g); g.connect(musGain); o.start(t); o.stop(t + dur + 0.01);
 }
@@ -476,19 +507,48 @@ function musNoise(t, dur, vol) {
   g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
   sN.connect(g); g.connect(musGain); sN.start(t, Math.random() * 0.4, dur + 0.02);
 }
+function rng32(seed) { return () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const PROGS = [[[0, 0], [8, 1], [3, 1], [10, 1]], [[0, 0], [5, 0], [10, 1], [3, 1]], [[0, 1], [7, 1], [9, 0], [5, 1]], [[0, 1], [9, 0], [5, 1], [7, 1]],
+  [[0, 0], [10, 1], [8, 1], [7, 1]], [[0, 1], [5, 1], [2, 0], [7, 1]], [[0, 0], [3, 1], [10, 1], [5, 0]]];      // [semitons acima da tônica, 1 = maior]
+const ARPS = [ARP, [0, 2, 1, 2, 0, 2, 1, 2, 0, 2, 1, 2, 0, 2, 1, 2], [2, 1, 0, -1, 2, 1, 0, -1, 0, 1, 2, 1, 2, -1, 2, -1], [0, -1, 1, 2, -1, 0, 1, -1, 2, -1, 1, 0, -1, 1, 2, -1]];
+const BASSES = [[1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0], [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 3, 0], [1, 1, 0, 2, 0, 1, 0, 2, 1, 1, 0, 2, 0, 3, 0, 2], [1, 0, 3, 0, 2, 0, 3, 0, 1, 0, 3, 0, 2, 0, 1, 0]];
+const RHY = [[1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0], [1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0], [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0]];
+function makeSong(n) {               // cada missão tem a sua música; a mesma missão sempre gera a mesma
+  if (n === 0) return { chords: CHORDS, arp: ARP, tune: TUNE, bass: BASSES[0], bpm: 132, wave: 'square', snare: 8 };
+  const r = rng32(n * 7919 + 101), prog = PROGS[n % PROGS.length], root = 55 + Math.floor(r() * 8), minor = !prog[0][1];
+  const scale = minor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11], notes = [];
+  for (let o = 12; o <= 24; o += 12) scale.forEach(d => notes.push(root + o + d));
+  const chords = prog.map(c => [root + c[0], root + c[0] + (c[1] ? 4 : 3), root + c[0] + 7]);
+  const rh = RHY[Math.floor(r() * RHY.length)], tune = []; let idx = 4 + Math.floor(r() * 4);
+  for (let b = 0; b < 4; b++) {
+    const bar = [];
+    for (let st = 0; st < 16; st++) {
+      if (!rh[st] || (st === 15 && b === 3)) { bar.push(-1); continue; }
+      if (st % 8 === 0) {             // tempo forte: nota do acorde mais próxima
+        let bestI = idx, bd = 99; notes.forEach((nn, i) => { if (chords[b].some(c => (nn - c) % 12 === 0)) { const d = Math.abs(i - idx) + r() * 0.5; if (d < bd) { bd = d; bestI = i; } } }); idx = bestI;
+      } else idx = clamp(idx + [-2, -1, -1, 1, 1, 2][Math.floor(r() * 6)], 1, notes.length - 2);
+      bar.push(notes[idx]);
+    }
+    tune.push(bar);
+  }
+  return { chords, arp: ARPS[Math.floor(r() * ARPS.length)], tune, bass: BASSES[Math.floor(r() * BASSES.length)],
+    bpm: 118 + Math.floor(r() * 6) * 7, wave: r() < 0.3 ? 'sawtooth' : 'square', snare: r() < 0.5 ? 8 : 4 };
+}
+let song = makeSong(0);
+function setSong(n) { song = makeSong(n); musStep = 0; }
 function musTick() {
   if (!AC || !musGain) return;
   if (AC.state !== 'running') { try { AC.resume(); } catch (e) {} return; }
   musGain.gain.value = muted ? 0 : (state === 'play' && !prep ? 1 : 0.7);
-  const sd = 60 / ((state === 'play' && timeLeft < 0) ? 156 : 132) / 4;            // atrasado: a música acelera
+  const sd = 60 / (song.bpm + ((state === 'play' && timeLeft < 0) ? 24 : 0)) / 4;   // atrasado: a música acelera
   if (musNext < AC.currentTime) musNext = AC.currentTime + 0.05;
   while (musNext < AC.currentTime + 0.15) {
-    const st = musStep % 16, bar = Math.floor(musStep / 16), ch = CHORDS[bar % 4], sect = Math.floor(bar / 4) % 4, t = musNext;
-    const lead = sect < 2 ? (ARP[st] < 0 ? -1 : ch[ARP[st]] + 12) : TUNE[bar % 4][st];
+    const st = musStep % 16, bar = Math.floor(musStep / 16), ch = song.chords[bar % 4], sect = Math.floor(bar / 4) % 4, t = musNext;
+    const lead = sect < 2 ? (song.arp[st] < 0 ? -1 : ch[song.arp[st]] + 12) : song.tune[bar % 4][st];
     // volumes altos e baixo uma oitava acima: alto-falante de celular não reproduz graves
-    if (lead > 0) musNote(MIDI(lead), t, sd * 0.9, 0.1);
-    if (st % 2 === 0) musNote(MIDI(ch[0] + (st % 4 === 2 ? 12 : 0)), t, sd * 1.5, 0.075);
-    if (st % 8 === 4) musNoise(t, 0.09, 0.1); else if (st % 4 === 2) musNoise(t, 0.03, 0.045);
+    if (lead > 0) musNote(MIDI(lead), t, sd * 0.9, song.wave === 'square' ? 0.1 : 0.075, song.wave);
+    const bs = song.bass[st]; if (bs) musNote(MIDI(ch[0] + (bs === 2 ? 12 : bs === 3 ? 7 : 0)), t, sd * 1.5, 0.075, 'square');
+    if (st % song.snare === 4) musNoise(t, 0.09, 0.1); else if (st % 4 === 2) musNoise(t, 0.03, 0.045);
     musNext += sd; musStep++;
   }
 }
@@ -920,6 +980,7 @@ function drawRoad(n, k) {
   const asph = alt ? '#55575c' : '#515358';
   ctx.fillStyle = cross ? asph : (k & 1 ? '#b9b4a8' : '#aeaa9e');
   ctx.fillRect(0, y2, W, y1 - y2 + 1);
+  for (let sd = 0; sd < 2; sd++) { const pb = blocks[sd][Math.floor(k / BLOCK)]; if (pb && pb.style === 'park') q(x1, y1, w1, x2, y2, w2, sd ? 1.38 : -40, sd ? 40 : -1.38, k & 1 ? '#5f9a4f' : '#578f48'); }
   q(x1, y1, w1, x2, y2, w2, -1, 1, asph);
   if (!cross) { q(x1, y1, w1, x2, y2, w2, 1.0, 1.03, '#dcd9d0'); q(x1, y1, w1, x2, y2, w2, -1.03, -1.0, '#dcd9d0'); }
   if (state !== 'menu') { const c = nextStop(), kz = k * SEG; if (!c.done && kz >= c.z - ZONE_BACK - SEG && kz < c.z + ZONE_FWD) q(x1, y1, w1, x2, y2, w2, 0.46, 0.995, k & 1 ? '#ffd100' : '#c79f00'); }
@@ -943,9 +1004,20 @@ function wallQuad(xn, yn, sn, xf, yf, sf, b0, b1, col) {
 }
 function drawWall(n, k, side) {
   const bi = Math.floor(k / BLOCK), b = blocks[side][bi];
-  if (!b || b.gap) return;
-  const o = side ? BL : -BL;
+  if (!b || b.gap || b.style === 'park') return;
+  const tun = b.style === 'tun', o = (side ? 1 : -1) * (tun ? 1.07 : BL);
   const xn = PX[n] + o * PW[n], xf = PX[n + 1] + o * PW[n + 1], yn = PY[n], yf = PY[n + 1], sn = PS[n], sf = PS[n + 1];
+  if (tun) {                        // parede de concreto, faixa de luz e, uma vez por segmento, o teto
+    wallQuad(xn, yn, sn, xf, yf, sf, 0, 520, k & 1 ? '#7d8087' : '#74777e');
+    wallQuad(xn, yn, sn, xf, yf, sf, 0, 90, '#d9d6c8');
+    if (k % 3 === 0) wallQuad(xn, yn, sn, xf, yf, sf, 330, 370, '#fff1a8');
+    if (side) {
+      const xnl = PX[n] - 1.07 * PW[n], xfl = PX[n + 1] - 1.07 * PW[n + 1];
+      ctx.fillStyle = k & 1 ? '#33353b' : '#2d2f35'; ctx.beginPath();
+      ctx.moveTo(xnl, yn - 520 * sn); ctx.lineTo(xn, yn - 520 * sn); ctx.lineTo(xf, yf - 520 * sf); ctx.lineTo(xfl, yf - 520 * sf); ctx.fill();
+    }
+    return;
+  }
   if (side ? Math.min(xn, xf) > W + 2 : Math.max(xn, xf) < -2) return;
   ctx.globalAlpha = clamp((DRAW - n) / 28, 0, 1);
   if (b.style === 'masp') {
@@ -979,8 +1051,18 @@ function drawWall(n, k, side) {
 function drawFront(n, k, side) {       // face do prédio voltada para a câmera
   if (k % BLOCK !== 0) return;
   const bi = k / BLOCK, b = blocks[side][bi], prev = blocks[side][bi - 1];
-  if (!b || b.gap) return;
-  if (prev && !prev.gap && prev.h >= b.h && prev.style !== 'masp' && b.style !== 'masp') return;
+  if (!b || b.gap || b.style === 'park') return;
+  if (b.style === 'tun') {            // boca do túnel: emboque de concreto em volta da abertura
+    if (side && (!prev || prev.style !== 'tun')) {
+      const sc0 = PS[n], y0 = PY[n], xl = PX[n] - 1.07 * PW[n], xr = PX[n] + 1.07 * PW[n];
+      ctx.fillStyle = '#8b8e95'; ctx.fillRect(xl - 3000 * sc0, y0 - 1500 * sc0, 3000 * sc0, 1500 * sc0); ctx.fillRect(xr, y0 - 1500 * sc0, 3000 * sc0, 1500 * sc0);
+      ctx.fillRect(xl, y0 - 1500 * sc0, xr - xl, 980 * sc0);
+      ctx.fillStyle = '#5f9a4f'; ctx.fillRect(xl - 3000 * sc0, y0 - 1620 * sc0, xr - xl + 6000 * sc0, 130 * sc0);
+      ctx.fillStyle = '#e3b93a'; ctx.fillRect(xl, y0 - 560 * sc0, xr - xl, 40 * sc0);
+    }
+    return;
+  }
+  if (prev && !prev.gap && prev.style === 'b' && prev.h >= b.h && b.style !== 'masp') return;
   const sc = PS[n], x = PX[n] + (side ? BL : -BL) * PW[n], y = PY[n];
   const wpx = 3200 * sc, x0 = side ? x : x - wpx;
   if (side ? x0 > W : x0 + wpx < 0) return;
@@ -1319,7 +1401,7 @@ function drawMinimap() {
       const bl = blocks[sd][b]; if (!bl) continue;
       if (bl.gap) { hx.fillStyle = '#fbfaf5'; hx.fillRect(mx - r, y, 2 * r, sh); break; }
       if (i % BLOCK === BLOCK - 1) continue;             // vão entre os lotes
-      hx.fillStyle = bl.style === 'masp' ? '#e2777c' : MAPC[(b * 3 + sd * 2) % MAPC.length];
+      hx.fillStyle = bl.style === 'masp' ? '#e2777c' : bl.style === 'park' ? '#8fca7c' : bl.style === 'tun' ? '#9a9da3' : MAPC[(b * 3 + sd * 2) % MAPC.length];
       if (sd) hx.fillRect(xc + rw + 2, y, r * 2, sh); else hx.fillRect(xc - rw - 2 - r * 2, y, r * 2, sh);
     }
     hx.fillStyle = '#fbfaf5'; hx.fillRect(xc - rw, y, 2 * rw, sh);
@@ -1415,7 +1497,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, musStep, musLevel: musLevel(), oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
