@@ -198,7 +198,7 @@ let sT = 0, sR = 0, sB = 0, sL = 0;
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   FW = window.innerWidth; FHH = window.innerHeight;
-  PXS = Math.max(2, Math.min(FW, FHH) / 150);           // tamanho de cada "pixelão" na tela
+  PXS = Math.max(1.4, Math.min(FW, FHH) / 270);          // tamanho de cada "pixelão" na tela
   W = Math.ceil(FW / PXS); H = Math.ceil(FHH / PXS);    // o mundo é desenhado nesta resolução baixa
   cv.width = W; cv.height = H; ctx.setTransform(1, 0, 0, 1, 0, 0);
   hcv.width = Math.round(FW * DPR); hcv.height = Math.round(FHH * DPR); hx.setTransform(DPR, 0, 0, DPR, 0, 0);
