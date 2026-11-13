@@ -13,7 +13,16 @@
   html, body { margin:0; height:100%; background:#000; overflow:hidden; overscroll-behavior:none;
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-user-select:none; user-select:none; touch-action:none; }
-  #game { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #game, #hudcv { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #game { image-rendering:crisp-edges; image-rendering:pixelated; }
+  #hudcv { pointer-events:none; }
+  /* estilo 8-bit: cantos retos, fonte monoespaçada, sombras duras */
+  body, button { font-family:"Courier New",ui-monospace,Menlo,Consolas,monospace; }
+  #hud *, #brake, .card, .btn, .tag { border-radius:0 !important; }
+  #hc, #tMoney, #mute, .hb { box-shadow:3px 3px 0 #000 !important; backdrop-filter:none; }
+  .card { border:3px solid #ffd100 !important; box-shadow:6px 6px 0 #000 !important; }
+  .btn, #brake { box-shadow:4px 4px 0 #000; border:2px solid #000 !important; }
+  h1, h2, .btn, .tag, #toast { text-transform:uppercase; }
   #probe { position:fixed; left:0; top:0; width:0; height:0; visibility:hidden;
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 
@@ -100,6 +109,7 @@
 </head>
 <body>
 <canvas id="game"></canvas>
+<canvas id="hudcv"></canvas>
 <div id="probe"></div>
 
 <div id="hud">
@@ -179,23 +189,40 @@ const CIRCUITS = [
 const MAPC = ['#cfe3b4','#f2c7c0','#f6dfae','#c9daf0','#e3d3ee'];
 
 /* ================= canvas / câmera ================= */
-const cv = document.getElementById('game');
-const ctx = cv.getContext('2d', { alpha:false });
-let W = 0, H = 0, DPR = 1, S = 400, cx = 0, hy = 0, CAMH = 300, U = 1;
+const cv = document.getElementById('game'), hcv = document.getElementById('hudcv');
+const ctx = cv.getContext('2d', { alpha:false, willReadFrequently:true });
+const hx = hcv.getContext('2d');
+let rc = ctx;                                  // contexto usado por rr()
+let W = 0, H = 0, FW = 0, FHH = 0, PXS = 3, DPR = 1, S = 400, cx = 0, hy = 0, CAMH = 300, U = 1;
 let sT = 0, sR = 0, sB = 0, sL = 0;
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
-  W = window.innerWidth; H = window.innerHeight;
-  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  FW = window.innerWidth; FHH = window.innerHeight;
+  PXS = Math.max(2, Math.min(FW, FHH) / 150);           // tamanho de cada "pixelão" na tela
+  W = Math.ceil(FW / PXS); H = Math.ceil(FHH / PXS);    // o mundo é desenhado nesta resolução baixa
+  cv.width = W; cv.height = H; ctx.setTransform(1, 0, 0, 1, 0, 0);
+  hcv.width = Math.round(FW * DPR); hcv.height = Math.round(FHH * DPR); hx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  hx.imageSmoothingEnabled = false;
   const land = W > H;
   const ppc = Math.min(W / 660, H / 395);              // px por cm na distância da moto
   hy = H * (land ? 0.18 : 0.28);
   CAMH = Math.max(250, Math.min(620, ((land ? 0.84 : 0.74) * H - hy) / ppc));
   S = ppc * CAMD; cx = W / 2;
-  U = Math.max(0.82, Math.min(1.3, Math.min(W, H) / 400));
+  U = Math.max(0.82, Math.min(1.3, Math.min(FW, FHH) / 400));
   const cs = getComputedStyle(document.getElementById('probe'));
   sT = parseFloat(cs.paddingTop) || 0; sR = parseFloat(cs.paddingRight) || 0; sB = parseFloat(cs.paddingBottom) || 0; sL = parseFloat(cs.paddingLeft) || 0;
+}
+// paleta de 8 bits: 6 níveis por canal (216 cores, cabe em 1 byte por pixel) com pontilhado ordenado leve
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v / 16 - 0.47) * 16);
+const Q6 = new Uint8ClampedArray(384);
+for (let i = 0; i < 384; i++) Q6[i] = Math.round(Math.max(0, Math.min(255, i - 64)) / 51) * 51;
+function to8bit() {
+  const img = ctx.getImageData(0, 0, W, H), d = img.data;
+  for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i += 4) {
+    const t = BAYER[(y & 3) * 4 + (x & 3)] + 64;
+    d[i] = Q6[(d[i] + t) | 0]; d[i + 1] = Q6[(d[i + 1] + t) | 0]; d[i + 2] = Q6[(d[i + 2] + t) | 0];
+  }
+  ctx.putImageData(img, 0, 0);
 }
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 200));
@@ -473,8 +500,8 @@ function gameOver(why) {
 /* ================= controles ================= */
 const touches = new Map();
 let keys = {}, brakeHeld = false;
-cv.addEventListener('pointerdown', e => { if (state !== 'play') return; initAudio(); touches.set(e.pointerId, e.clientX < W / 2 ? -1 : 1); e.preventDefault(); });
-cv.addEventListener('pointermove', e => { if (touches.has(e.pointerId)) touches.set(e.pointerId, e.clientX < W / 2 ? -1 : 1); });
+cv.addEventListener('pointerdown', e => { if (state !== 'play') return; initAudio(); touches.set(e.pointerId, e.clientX < FW / 2 ? -1 : 1); e.preventDefault(); });
+cv.addEventListener('pointermove', e => { if (touches.has(e.pointerId)) touches.set(e.pointerId, e.clientX < FW / 2 ? -1 : 1); });
 const up = e => touches.delete(e.pointerId);
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up); cv.addEventListener('pointerleave', up);
 brakeBtn.addEventListener('pointerdown', e => { brakeHeld = true; brakeBtn.classList.add('down'); try { brakeBtn.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
@@ -624,7 +651,7 @@ function project() {
   let x = 0, dx = -(camZ / SEG - base) * (curve[Math.max(0, base)] || 0);
   for (let n = 0; n <= DRAW; n++) { CX[n] = x; x += dx; dx += curve[Math.max(0, base + n)] || 0; }
   camX = clamp(px, -0.75, 0.95) * ROAD * 0.92 + curveOff(pos); camY = CAMH + bump * 0.4;
-  shakeX = shake > 0 ? (Math.random() - 0.5) * 16 * shake : 0;
+  shakeX = shake > 0 ? (Math.random() - 0.5) * 16 * shake / PXS : 0;
   for (let n = 0; n <= DRAW; n++) {
     let dz = (base + n) * SEG - camZ; if (dz < 50) dz = 50;
     const sc = S / dz;
@@ -636,11 +663,11 @@ function q(x1, y1, w1, x2, y2, w2, a, b, col) {
   ctx.moveTo(x1 + a * w1, y1 + 0.6); ctx.lineTo(x1 + b * w1, y1 + 0.6); ctx.lineTo(x2 + b * w2, y2); ctx.lineTo(x2 + a * w2, y2); ctx.fill();
 }
 function rr(x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2); ctx.beginPath();
-  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  r = Math.min(r, w / 2, h / 2); const c = rc; c.beginPath();
+  c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
+  c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  c.lineTo(x + r, y + h); c.quadraticCurveTo(x, y + h, x, y + h - r);
+  c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
 }
 const offX = x => x < -300 || x > W + 300;
 
@@ -992,7 +1019,7 @@ const byFar = (a, b) => b.z - a.z;
 /* ================= HUD no canvas: minimapa e velocímetro ================= */
 const MO = new Float32Array(100);   // deslocamento lateral do traçado em relação à moto, por segmento
 function drawMinimap() {
-  const r = clamp(Math.min(W, H) * 0.15, 46, 84), mx = 10 + sL + r, my = H - 10 - sB - r;
+  const r = clamp(Math.min(FW, FHH) * 0.15, 46, 84), mx = 10 + sL + r, my = FHH - 10 - sB - r;
   const k = r / 11000, kx = k * 2.2;           // 1 raio = 110 m; largura da rua ampliada 2,2x para leitura
   const py = my + r * 0.45, Yz = z => py - (z - pos) * k;
   const ks = Math.floor(pos / SEG), k0 = ks - 25, fr = pos / SEG - ks;
@@ -1001,69 +1028,71 @@ function drawMinimap() {
     x = 0; dx = fr * (curve[ks] || 0);
     for (let i = ks - 1; i >= k0; i--) { dx += curve[Math.max(0, i)] || 0; x += dx; MO[i - k0] = x; } }
   const Xz = z => { const f = z / SEG - k0, i = clamp(Math.floor(f), 0, 98); return mx + (MO[i] + (MO[i + 1] - MO[i]) * (f - i)) * k; };
-  ctx.save(); ctx.beginPath(); ctx.arc(mx, my, r, 0, 7); ctx.clip();
-  ctx.fillStyle = '#e8e2d2'; ctx.fillRect(mx - r, my - r, 2 * r, 2 * r);
+  hx.save(); hx.beginPath(); hx.arc(mx, my, r, 0, 7); hx.clip();
+  hx.fillStyle = '#e8e2d2'; hx.fillRect(mx - r, my - r, 2 * r, 2 * r);
   const rw = ROAD * kx, sh = SEG * k + 0.6;
   for (let i = Math.max(0, k0); i < k0 + 85; i++) {
     const xc = Xz((i + 0.5) * SEG), y = Yz((i + 1) * SEG), b = Math.floor(i / BLOCK);
     for (let sd = 0; sd < 2; sd++) {
       const bl = blocks[sd][b]; if (!bl) continue;
-      if (bl.gap) { ctx.fillStyle = '#fbfaf5'; ctx.fillRect(mx - r, y, 2 * r, sh); break; }
+      if (bl.gap) { hx.fillStyle = '#fbfaf5'; hx.fillRect(mx - r, y, 2 * r, sh); break; }
       if (i % BLOCK === BLOCK - 1) continue;             // vão entre os lotes
-      ctx.fillStyle = bl.style === 'masp' ? '#e2777c' : MAPC[(b * 3 + sd * 2) % MAPC.length];
-      if (sd) ctx.fillRect(xc + rw + 2, y, r * 2, sh); else ctx.fillRect(xc - rw - 2 - r * 2, y, r * 2, sh);
+      hx.fillStyle = bl.style === 'masp' ? '#e2777c' : MAPC[(b * 3 + sd * 2) % MAPC.length];
+      if (sd) hx.fillRect(xc + rw + 2, y, r * 2, sh); else hx.fillRect(xc - rw - 2 - r * 2, y, r * 2, sh);
     }
-    ctx.fillStyle = '#fbfaf5'; ctx.fillRect(xc - rw, y, 2 * rw, sh);
-    ctx.fillStyle = '#e3b93a'; ctx.fillRect(xc - 0.6, y, 1.2, sh);
+    hx.fillStyle = '#fbfaf5'; hx.fillRect(xc - rw, y, 2 * rw, sh);
+    hx.fillStyle = '#e3b93a'; hx.fillRect(xc - 0.6, y, 1.2, sh);
   }
   // rota até o destino (segue o traçado)
   const zEnd = Math.min(finishZ, pos + 15500);
-  ctx.strokeStyle = '#2b7de9'; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.beginPath(); ctx.moveTo(mx + px * ROAD * kx, py);
-  for (let z = pos + 600; z < zEnd; z += 600) ctx.lineTo(Xz(z) + 0.5 * ROAD * kx, Yz(z));
-  ctx.stroke();
+  hx.strokeStyle = '#2b7de9'; hx.lineWidth = 2.4; hx.lineCap = 'round'; hx.lineJoin = 'round';
+  hx.beginPath(); hx.moveTo(mx + px * ROAD * kx, py);
+  for (let z = pos + 600; z < zEnd; z += 600) hx.lineTo(Xz(z) + 0.5 * ROAD * kx, Yz(z));
+  hx.stroke();
   // buracos, pedestres na pista e veículos
   for (let kk = ks - 10; kk < ks + 58; kk++) {
     const a = segSprites[kk]; if (!a) continue;
-    for (let i = 0; i < a.length; i++) if (a[i].t === 'hole' && !a[i].hit) { ctx.fillStyle = '#c4551a'; ctx.beginPath(); ctx.arc(Xz(a[i].z) + a[i].x * ROAD * kx, Yz(a[i].z), 2, 0, 7); ctx.fill(); }
+    for (let i = 0; i < a.length; i++) if (a[i].t === 'hole' && !a[i].hit) { hx.fillStyle = '#c4551a'; hx.beginPath(); hx.arc(Xz(a[i].z) + a[i].x * ROAD * kx, Yz(a[i].z), 2, 0, 7); hx.fill(); }
   }
-  ctx.fillStyle = '#7a3fb3';
-  for (let i = 0; i < peds.length; i++) { const p = peds[i]; if (p.z > pos - 6000 && p.z < pos + 17000 && Math.abs(p.x) < 1) { ctx.beginPath(); ctx.arc(Xz(p.z) + p.x * ROAD * kx, Yz(p.z), 1.6, 0, 7); ctx.fill(); } }
-  const veh = (c, col) => { if (c.z < pos - 6500 || c.z > pos + 17000) return; ctx.fillStyle = col; ctx.fillRect(Xz(c.z) + c.x * ROAD * kx - 1.6, Yz(c.z + c.len), 3.2, Math.max(4, c.len * k)); };
+  hx.fillStyle = '#7a3fb3';
+  for (let i = 0; i < peds.length; i++) { const p = peds[i]; if (p.z > pos - 6000 && p.z < pos + 17000 && Math.abs(p.x) < 1) { hx.beginPath(); hx.arc(Xz(p.z) + p.x * ROAD * kx, Yz(p.z), 1.6, 0, 7); hx.fill(); } }
+  const veh = (c, col) => { if (c.z < pos - 6500 || c.z > pos + 17000) return; hx.fillStyle = col; hx.fillRect(Xz(c.z) + c.x * ROAD * kx - 1.6, Yz(c.z + c.len), 3.2, Math.max(4, c.len * k)); };
   for (let i = 0; i < cars.length; i++) veh(cars[i], cars[i].t === 'bus' ? '#2f5fa8' : '#4b4f57');
   for (let i = 0; i < oncoming.length; i++) veh(oncoming[i], '#9a9da3');
   // pino do destino: na posição real quando está no alcance; senão, preso à borda na direção da rota
   let dx = Xz(zEnd) + 0.5 * ROAD * kx, dy = Yz(zEnd);
   const ddx = dx - mx, ddy = dy - my, dd = Math.hypot(ddx, ddy), lim = r - 15;
   if (dd > lim) { dx = mx + ddx / dd * lim; dy = my + ddy / dd * lim; }
-  ctx.fillStyle = '#ffd100'; ctx.strokeStyle = '#111'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(dx, dy + 3); ctx.lineTo(dx - 6, dy - 6); ctx.arc(dx, dy - 9, 7, Math.PI * 0.85, Math.PI * 0.15); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#111'; ctx.font = '900 9px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('K', dx, dy - 8.5);
+  hx.fillStyle = '#ffd100'; hx.strokeStyle = '#111'; hx.lineWidth = 1.2;
+  hx.beginPath(); hx.moveTo(dx, dy + 3); hx.lineTo(dx - 6, dy - 6); hx.arc(dx, dy - 9, 7, Math.PI * 0.85, Math.PI * 0.15); hx.closePath(); hx.fill(); hx.stroke();
+  hx.fillStyle = '#111'; hx.font = '900 9px system-ui,sans-serif'; hx.textAlign = 'center'; hx.textBaseline = 'middle'; hx.fillText('K', dx, dy - 8.5);
   // jogador
   const ax = mx + px * ROAD * kx;
-  ctx.fillStyle = '#1f6fe0'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(ax, py - 8); ctx.lineTo(ax + 6, py + 6); ctx.lineTo(ax, py + 2.5); ctx.lineTo(ax - 6, py + 6); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.restore();
-  ctx.strokeStyle = '#1d2026'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(mx, my, r, 0, 7); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(mx, my, r + 2.4, 0, 7); ctx.stroke();
+  hx.fillStyle = '#1f6fe0'; hx.strokeStyle = '#fff'; hx.lineWidth = 1.5;
+  hx.beginPath(); hx.moveTo(ax, py - 8); hx.lineTo(ax + 6, py + 6); hx.lineTo(ax, py + 2.5); hx.lineTo(ax - 6, py + 6); hx.closePath(); hx.fill(); hx.stroke();
+  hx.restore();
+  hx.strokeStyle = '#1d2026'; hx.lineWidth = 4; hx.beginPath(); hx.arc(mx, my, r, 0, 7); hx.stroke();
+  hx.strokeStyle = 'rgba(255,255,255,.75)'; hx.lineWidth = 1.2; hx.beginPath(); hx.arc(mx, my, r + 2.4, 0, 7); hx.stroke();
 }
 function drawSpeedo() {
-  const w = 128 * U, h = 76 * U, x = W - 10 - sR - w, y = H - 10 - sB - h, kmh = speed * 0.036;
-  ctx.fillStyle = 'rgba(6,16,11,.9)'; rr(x, y, w, h, 12 * U); ctx.fill();
-  ctx.strokeStyle = '#2fe37a'; ctx.lineWidth = 2; ctx.shadowColor = '#2fe37a'; ctx.shadowBlur = 8; rr(x, y, w, h, 12 * U); ctx.stroke(); ctx.shadowBlur = 0;
+  rc = hx;
+  const w = 128 * U, h = 76 * U, x = FW - 10 - sR - w, y = FHH - 10 - sB - h, kmh = speed * 0.036;
+  hx.fillStyle = 'rgba(6,16,11,.9)'; rr(x, y, w, h, 0); hx.fill();
+  hx.strokeStyle = '#2fe37a'; hx.lineWidth = 2; hx.shadowColor = '#2fe37a'; hx.shadowBlur = 8; rr(x, y, w, h, 0); hx.stroke(); hx.shadowBlur = 0;
   const N = 20, lit = kmh / 120 * N, sw = (w - 20 * U) / N;
   for (let i = 0; i < N; i++) {
     const t = i / (N - 1), bh = (7 + 9 * t) * U, bx = x + 10 * U + i * sw, by = y + 9 * U + (1 - t) * 9 * U;
-    ctx.fillStyle = i < lit ? (i >= 16 ? '#ff4d4d' : '#39f08a') : (i >= 16 ? '#3a1515' : '#12301f');
-    ctx.fillRect(bx, by, sw - 1.5 * U, bh);
+    hx.fillStyle = i < lit ? (i >= 16 ? '#ff4d4d' : '#39f08a') : (i >= 16 ? '#3a1515' : '#12301f');
+    hx.fillRect(bx, by, sw - 1.5 * U, bh);
   }
-  ctx.fillStyle = '#39f08a'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'right';
-  ctx.font = '900 ' + 34 * U + 'px "Courier New",ui-monospace,Menlo,monospace';
-  ctx.shadowColor = '#39f08a'; ctx.shadowBlur = 6; ctx.fillText(String(Math.round(kmh)).padStart(2, '0'), x + w * 0.62, y + h - 10 * U); ctx.shadowBlur = 0;
-  ctx.font = '700 ' + 12 * U + 'px system-ui,sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = '#b8f7d2';
-  ctx.fillText('km/h', x + w * 0.66, y + h - 11 * U);
-  ctx.font = '900 ' + 13 * U + 'px system-ui,sans-serif'; ctx.fillStyle = '#ffd100';
-  ctx.fillText(gear + 'ª', x + w * 0.66, y + h - 27 * U);
+  hx.fillStyle = '#39f08a'; hx.textBaseline = 'alphabetic'; hx.textAlign = 'right';
+  hx.font = '900 ' + 34 * U + 'px "Courier New",ui-monospace,Menlo,monospace';
+  hx.shadowColor = '#39f08a'; hx.shadowBlur = 6; hx.fillText(String(Math.round(kmh)).padStart(2, '0'), x + w * 0.62, y + h - 10 * U); hx.shadowBlur = 0;
+  hx.font = '700 ' + 12 * U + 'px system-ui,sans-serif'; hx.textAlign = 'left'; hx.fillStyle = '#b8f7d2';
+  hx.fillText('km/h', x + w * 0.66, y + h - 11 * U);
+  hx.font = '900 ' + 13 * U + 'px system-ui,sans-serif'; hx.fillStyle = '#ffd100';
+  hx.fillText(gear + 'ª', x + w * 0.66, y + h - 27 * U);
+  rc = ctx;
 }
 
 function render() {
@@ -1081,6 +1110,8 @@ function render() {
     if (b.length) { if (b.length > 1) b.sort(byFar); for (let i = 0; i < b.length; i++) spriteAt(b[i]); }
   }
   if (pal.overlay) { ctx.fillStyle = pal.overlay; ctx.fillRect(0, 0, W, H); }
+  to8bit();
+  hx.clearRect(0, 0, FW, FHH);
   if (state === 'play') { drawMinimap(); drawSpeedo(); }
 }
 
