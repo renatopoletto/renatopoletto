@@ -101,7 +101,7 @@
   #wheel.on { display:block; }
   #wheel.down { background:#fff3a0; }
   #wheel.cool { background:#8a8a8a; color:#333; }
-  #wheel i { position:absolute; left:0; bottom:0; height:5px; width:0; background:#e5383b; }
+  #wheel i { position:absolute; left:0; bottom:0; height:6px; width:0; background:#2fbf71; }
   #wheel span { position:relative; }
   @media (orientation:landscape) {
     #wheel { left:calc(env(safe-area-inset-left) + 12px); transform:none; bottom:auto; top:44%; width:100px; }
@@ -187,7 +187,7 @@
 <div class="hint" id="hL">◀</div>
 <div class="hint" id="hR">▶</div>
 <button id="brake">FREIO</button>
-<button id="wheel"><i id="wMeter"></i><span>EMPINA</span></button>
+<button id="wheel"><i id="wMeter"></i><span>CORRER</span></button>
 <div id="prep"><div class="pcard"><b id="pTitle"></b><small id="pStat"></small><div class="pbar"><i id="pBar"></i></div><div id="pList"></div></div></div>
 <div id="toast"></div>
 <div id="flash"></div>
@@ -231,6 +231,9 @@ const VEH = [
 ];
 const vehIdx = lv => Math.min(VEH.length - 1, Math.floor((lv - 1) / 2));
 let M = VEH[0];
+// a pé: anda a 6 km/h e pode correr a 13 km/h enquanto tiver fôlego
+const WALK_V = 167, STAM_MAX = 6;                // 6 s de corrida com o fôlego cheio
+let stam = STAM_MAX, running = false, tired = false, wantRun = false;
 
 const STREETS = ['R. da Consolação','R. Bela Cintra','R. Haddock Lobo','R. Augusta','R. Pe. João Manuel',
   'Al. Min. Rocha Azevedo','R. Peixoto Gomide','Al. Casa Branca','R. Pamplona','Al. Campinas',
@@ -741,6 +744,7 @@ function showMenu() {
     '<li><span>⏱️</span>Cada entrega tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
     '<li><span>📈</span>Você começa a pé e é promovido a cada duas fases: bicicleta, bicicleta elétrica e moto</li>' +
     '<li><span>👆</span>Toque no lado esquerdo ou direito para desviar; FREIO para frear</li>' +
+    '<li><span>🏃</span>A pé, segure CORRER para acelerar; a barra do botão é o fôlego</li>' +
     '<li><span>🛣</span>A pé, vá pela calçada; de bicicleta, pela ciclofaixa vermelha; de moto, pelas faixas de carro</li>' +
     '<li><span>🚦</span>Sinal vermelho: pare antes da linha e só siga no verde. Avançar é infração</li>' +
     '<li><span>🚶</span>Pedestre atravessa no sinal vermelho e tem preferência</li>' +
@@ -773,7 +777,7 @@ function nextOffer() {
     '<button class="btn">ACEITAR PEDIDO</button>', startPlay);
 }
 function startPlay() {
-  state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on'); wheelHeld = false;
+  state = 'play'; ui.classList.add('off'); hud.classList.add('on'); brakeBtn.classList.add('on'); wheelHeld = false; wheelBtn.classList.toggle('on', M.id === 'foot'); stam = STAM_MAX; running = false; tired = false;
    touches.clear(); keys = {}; hudCache = {};
   $('hL').classList.add('on'); $('hR').classList.add('on');
   setTimeout(() => { $('hL').classList.remove('on'); $('hR').classList.remove('on'); }, 3500);
@@ -878,6 +882,7 @@ function readInput() {
   braking = brakeHeld || (l && r) || keys.ArrowDown || keys.KeyS || keys.Space;
   steer = (l && r) ? 0 : l ? -1 : r ? 1 : 0;
   wantWheel = false;                                     // empinar foi retirado do jogo
+  wantRun = !!(wheelHeld || keys.ArrowUp || keys.KeyW);
 }
 
 /* ================= simulação ================= */
@@ -951,7 +956,12 @@ function update(dt) {
   bump *= Math.pow(0.002, dt);
 
   const onSide = px > 1.0;
-  const vmax = M.v;                                      // cada veículo tem a sua velocidade máxima
+  if (M.id === 'foot') {                                 // correr gasta fôlego; andando ele volta
+    running = wantRun && !tired && stam > 0 && !braking;
+    if (running) { stam -= dt; if (stam <= 0) { stam = 0; tired = true; toast('Sem fôlego! Ande um pouco', '#ffd100'); } }
+    else { stam = Math.min(STAM_MAX, stam + dt * 0.75); if (tired && stam >= 2) tired = false; }
+  }
+  const vmax = M.id === 'foot' && !running ? WALK_V : M.v;   // cada veículo tem a sua velocidade máxima
   // empinada: precisa de velocidade, tem limite de tempo e rende bônus
   wCool = Math.max(0, wCool - dt);
   if (wOn) {
@@ -969,7 +979,7 @@ function update(dt) {
   gear = g; shiftT = Math.max(0, shiftT - dt);
   if (braking) speed = Math.max(0, speed - M.brake * (1 + 0.2 * prof.upg.freio) * dt);
   else if (speed < vmax && shiftT <= 0 && !wOn && !yielding) speed = Math.min(vmax, speed + (M.id === 'moto' ? GEAR_ACC[gear - 1] : M.acc) * (1 + 0.12 * prof.upg.motor) * dt);
-  if (speed > vmax) speed = Math.max(vmax, speed - 2600 * dt);
+  if (speed > vmax) speed = Math.max(vmax, speed - (M.id === 'foot' ? 500 : 2600) * dt);
   if (onSide && speed > 100) bump = Math.sin(tAnim * 40) * 5;
 
   px += steerS * dt * 1.05 * M.steer * (0.3 + 0.7 * Math.min(1, speed / (M.v * 0.5)));
@@ -1117,8 +1127,8 @@ function updateHud() {
   const prog = clamp((pos - START) / (finishZ - START) * 100, 0, 100);
   setTxt('tFood', 'PEDIDO ' + Math.round(food) + '%');
   setTxt('tRoute', 'ROTA ' + Math.floor(prog) + '%');
-  $('wMeter').style.width = (wOn ? clamp(wHold / W_MAX, 0, 1) * 100 : 0).toFixed(0) + '%';
-  wheelBtn.classList.toggle('cool', !wOn && (wCool > 0 || speed < 720));
+  $('wMeter').style.width = (stam / STAM_MAX * 100).toFixed(0) + '%';                 // barra de fôlego no botão CORRER
+  wheelBtn.classList.toggle('cool', tired);
   $('bFood').style.width = food.toFixed(0) + '%';
   $('bRoute').style.width = prog.toFixed(1) + '%';
 }
@@ -1796,7 +1806,7 @@ function drawSpeedo() {
   hx.font = '700 ' + 12 * U + 'px Helvetica,Arial,sans-serif'; hx.textAlign = 'left'; hx.fillStyle = '#b8f7d2';
   hx.fillText('km/h', x + w * 0.66, y + h - 11 * U);
   hx.font = '900 ' + 13 * U + 'px Helvetica,Arial,sans-serif'; hx.fillStyle = '#ffd100';
-  hx.fillText(M.id === 'moto' ? gear + 'ª' : M.ic, x + w * 0.66, y + h - 27 * U);
+  hx.fillText(M.id === 'moto' ? gear + 'ª' : M.id === 'foot' && running ? '🏃' : M.ic, x + w * 0.66, y + h - 27 * U);
   rc = ctx;
 }
 
@@ -1838,7 +1848,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, veh: M.id, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, veh: M.id, running, stam, tired, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
