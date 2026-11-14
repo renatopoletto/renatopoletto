@@ -1,0 +1,10 @@
+{
+  "name": "Corre na Paulista",
+  "short_name": "Corre Paulista",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#111111"
+}
