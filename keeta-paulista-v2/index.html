@@ -221,10 +221,9 @@ const BUS_LANE = 5;
 const LANE_V = [1060, 1000, 930, 860, 780, 520];
 const START = 1500;
 let BIKE_LEN = 200, P_HW = 38 / ROAD;          // comprimento e meia largura do entregador; mudam com o veículo
-// Progressão: duas fases em cada veículo. v = velocidade máxima (cm/s); xmin/xmax = onde ele pode andar;
+// Progressão: duas fases em cada veículo, começando de bicicleta. v = velocidade máxima (cm/s); xmin/xmax = onde ele pode andar;
 // zone = área de parada pintada (null = a pé, basta chegar); zoneMax = limite lateral para a parada valer
 const VEH = [
-  { id:'foot',  n:'A pé',               ic:'🚶', v:361,  acc:520, brake:1400, len:50,  hw:22, steer:0.32, xmin:-1.40,  xmax:-1.05, zone:null,           zoneMax:0,     zb:260,  dist:180, gauge:20, start:-1.22 },
   { id:'bike',  n:'Bicicleta',          ic:'🚲', v:694,  acc:240, brake:900,  len:170, hw:30, steer:0.7,  xmin:-0.965, xmax:-0.36, zone:[-0.995, -0.68], zoneMax:-0.6,  zb:1500, dist:350, gauge:40, start:-5 / 6 },
   { id:'ebike', n:'Bicicleta elétrica', ic:'⚡', v:889,  acc:340, brake:1100, len:170, hw:30, steer:0.8,  xmin:-0.965, xmax:-0.36, zone:[-0.995, -0.68], zoneMax:-0.6,  zb:1500, dist:450, gauge:40, start:-5 / 6 },
   { id:'moto',  n:'Moto',               ic:'🏍', v:1667, acc:0,   brake:1700, len:200, hw:38, steer:1,    xmin:-0.64,  xmax:0.975, zone:[-0.66, -0.34],  zoneMax:-0.34, zb:1500, dist:700, gauge:80, start:1 / 6 }
@@ -380,6 +379,7 @@ const BONUS = [{ id:'nohit', t:'Termine a fase sem batidas nem infrações', s:'
 const COUPONS = [{ id:'demo-seq5', need:5, code:'DEMO-28MIN', desc:'5 entregas seguidas no prazo', demo:true }];
 let prof = { life:0, wallet:0, upg:{ bau:0, freio:0, pneu:0, motor:0 }, coupons:[], veh:0 };   // veh = veículo mais avançado já liberado
 try { const pj = JSON.parse(localStorage.getItem('correPaulistaPerfilV2') || 'null'); if (pj && pj.upg) prof = Object.assign(prof, pj, { upg: Object.assign(prof.upg, pj.upg) }); } catch (e) {}
+prof.veh = Math.max(0, Math.min(VEH.length - 1, prof.veh | 0));     // perfil antigo podia apontar para um veículo que não existe mais
 const saveProf = () => { try { localStorage.setItem('correPaulistaPerfilV2', JSON.stringify(prof)); } catch (e) {} };
 const tierIdx = () => { let i = 0; TIERS.forEach((t, j) => { if (prof.life >= t.v) i = j; }); return i; };
 let streak = 0, bestStreak = 0, bonus = BONUS[0], bHits = 0, bWheel = 0, bTop = 0, bFast = true, tierStart = 0, newCoupons = [];
@@ -422,8 +422,8 @@ try { const b = JSON.parse(localStorage.getItem('correPaulistaBestV2') || 'null'
 /* ================= geração da fase ================= */
 function makePhase(lv) {
   // cada entrega tem 28 min. Fase 1: um pedido; da fase 2 em diante: dois pedidos em sequência (entra, retira, entrega)
-  const vh = VEH[vehIdx(lv)], n = lv > 8 || lv % 2 === 0 ? 2 : 1;           // primeira fase de cada veículo: 1 entrega; segunda: 2
-  const L = vh.id === 'moto' && lv > 8 ? Math.min(600 + 40 * (lv - 8), 800) : vh.dist;
+  const vh = VEH[vehIdx(lv)], n = lv > 6 || lv % 2 === 0 ? 2 : 1;           // primeira fase de cada veículo: 1 entrega; segunda: 2
+  const L = vh.id === 'moto' && lv > 6 ? Math.min(600 + 40 * (lv - 6), 800) : vh.dist;
   const nCheck = Math.min(4, 2 + Math.floor((lv - 1) / 2)), list = [];
   for (let j = 0; j < n; j++) {
     const i = (lv - 1 + j * 3) % ITEMS.length;
@@ -742,10 +742,9 @@ function showMenu() {
     '<p>Carteira: <b style="color:#ffd100">' + brl(prof.wallet) + '</b> · ' + (nx ? 'faltam ' + brl(nx.v - prof.life) + ' para ' + nx.n : 'categoria máxima') + '</p>' +
     '<ul class="how">' +
     '<li><span>⏱️</span>Cada entrega tem 28 min no relógio do jogo: aceite, retire na loja e entregue ao cliente</li>' +
-    '<li><span>📈</span>Você começa a pé e é promovido a cada duas fases: bicicleta, bicicleta elétrica e moto</li>' +
+    '<li><span>📈</span>Você começa de bicicleta e é promovido a cada duas fases: bicicleta elétrica e depois moto</li>' +
     '<li><span>👆</span>Toque no lado esquerdo ou direito para desviar; FREIO para frear</li>' +
-    '<li><span>🏃</span>A pé, segure CORRER para acelerar; a barra do botão é o fôlego</li>' +
-    '<li><span>🛣</span>A pé, vá pela calçada; de bicicleta, pela ciclofaixa vermelha; de moto, pelas faixas de carro</li>' +
+    '<li><span>🛣</span>De bicicleta, vá pela ciclofaixa vermelha; de moto, pelas faixas de carro</li>' +
     '<li><span>🚦</span>Sinal vermelho: pare antes da linha e só siga no verde. Avançar é infração</li>' +
     '<li><span>🚶</span>Pedestre atravessa no sinal vermelho e tem preferência</li>' +
     '<li><span>🙋</span>Loja e clientes ficam na calçada da esquerda; a faixa da direita é dos ônibus</li>' +
