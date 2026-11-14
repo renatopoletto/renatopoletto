@@ -264,6 +264,19 @@ const PAL = [
   { name:'Fim de tarde', top:'#33406f', bot:'#f6b26b', haze:'#c99a80', overlay:'rgba(255,120,40,.13)', night:false, sun:['#ffd98a',0.3,0.1] },
   { name:'Noite', top:'#070b1c', bot:'#2a3558', haze:'#2b3350', overlay:'rgba(4,8,34,.56)', night:true, sun:['#e9edf7',0.78,0.05] }
 ];
+// Frota: só modelos BYD vendidos no Brasil. cab = trecho do teto (cm a partir da traseira); cw = largura da cabine;
+// style: hatch / sedan / suv / pickup; bar = lanterna traseira em barra inteiriça
+const BYD_CARS = [
+  { id:'dmini',   n:'Dolphin Mini', len:378, hw:78, belt:92,  h:158, cab:[40, 250],  cw:0.86, style:'hatch',  bar:true,  cols:['#9fd3c7','#f2f2f0','#c9ccd1','#e7b7a6'] },
+  { id:'dolphin', n:'Dolphin',      len:429, hw:89, belt:95,  h:157, cab:[50, 290],  cw:0.86, style:'hatch',  bar:true,  cols:['#3f7fb5','#f2f2f0','#6d737d','#d9e1e4'] },
+  { id:'seal',    n:'Seal',         len:480, hw:94, belt:86,  h:146, cab:[110, 360], cw:0.8,  style:'sedan',  bar:true,  cols:['#2c4c7c','#8a8f98','#f2f2f0','#2a2c31'] },
+  { id:'king',    n:'King',         len:478, hw:92, belt:92,  h:150, cab:[100, 350], cw:0.84, style:'sedan',  bar:false, cols:['#f2f2f0','#2a2c31','#6d737d','#a3242b'] },
+  { id:'yuan',    n:'Yuan Plus',    len:446, hw:94, belt:100, h:162, cab:[45, 320],  cw:0.86, style:'suv',    bar:true,  cols:['#c9ccd1','#3d6e8f','#f2f2f0','#2a2c31'] },
+  { id:'song',    n:'Song Plus',    len:477, hw:94, belt:102, h:167, cab:[45, 340],  cw:0.86, style:'suv',    bar:true,  cols:['#2a2c31','#f2f2f0','#6d737d','#7a1f2b'] },
+  { id:'tan',     n:'Tan',          len:497, hw:97, belt:106, h:172, cab:[40, 360],  cw:0.88, style:'suv',    bar:true,  cols:['#2a2c31','#c9ccd1','#3a3d44'] },
+  { id:'shark',   n:'Shark',        len:546, hw:99, belt:112, h:190, cab:[185, 390], cw:0.9,  style:'pickup', bar:false, cols:['#3a3d44','#f2f2f0','#8a8f98','#4a5a3c'] }
+];
+const BYD_TAXI = Object.assign({}, BYD_CARS[3], { cols:['#f4f4f4'] });   // táxi de São Paulo: King branco
 const CAR_COLS = ['#c9ccd1','#f4f4f4','#2a2c31','#a3242b','#6d737d','#2c4c7c','#8a8f98','#3a3d44'];
 const BLD_COLS = ['#b9b1a2','#c9bfa8','#a7a59d','#d0c2a6','#b59f8a','#9ea5a8','#c7b9a0','#aab0b3','#bfa98f'];
 const SHIRTS = ['#e94f37','#3f88c5','#44af69','#f6ae2d','#8e5572','#f2f2f2','#33658a','#d7263d','#222'];
@@ -305,7 +318,7 @@ let sT = 0, sR = 0, sB = 0, sL = 0;
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   FW = window.innerWidth; FHH = window.innerHeight;
-  PXS = Math.max(1.4, Math.min(FW, FHH) / 270);          // tamanho de cada "pixelão" na tela
+  PXS = Math.max(1.2, Math.min(FW, FHH) / 310);          // tamanho de cada "pixelão" na tela
   W = Math.ceil(FW / PXS); H = Math.ceil(FHH / PXS);    // o mundo é desenhado nesta resolução baixa
   cv.width = W; cv.height = H; ctx.setTransform(1, 0, 0, 1, 0, 0);
   hcv.width = Math.round(FW * DPR); hcv.height = Math.round(FHH * DPR); hx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -552,9 +565,9 @@ function buildLevel(lv) {
   for (let l = 1; l < LANES.length; l++) {
     for (let z = START + rnd(4500, 9000); z < finishZ + 4000; z += rnd(gMin, gMax)) {
       const bus = l === BUS_LANE && Math.random() < 0.6;
-      const taxi = !bus && Math.random() < 0.15;
-      const car = { t: bus ? 'bus' : 'car', z, zp: z, li: 0, cur: 0, x: LANES[l] + rnd(-0.025, 0.025), v: LANE_V[l] * rnd(0.97, 1.03),
-        hw: (bus ? 128 : 92) / ROAD, len: bus ? 1150 : 430, col: bus ? pick(['#2f5fa8','#8b2f3a','#3d7a52','#c9772b']) : taxi ? '#f4f4f4' : pick(CAR_COLS), taxi };
+      const taxi = !bus && Math.random() < 0.15, md = taxi ? BYD_TAXI : pick(BYD_CARS);
+      const car = { t: bus ? 'bus' : 'car', md, z, zp: z, li: 0, cur: 0, x: LANES[l] + rnd(-0.025, 0.025), v: LANE_V[l] * rnd(0.97, 1.03),
+        hw: (bus ? 128 : md.hw) / ROAD, len: bus ? 1300 : md.len, col: bus ? pick(['#2f5fa8','#8b2f3a','#3d7a52','#c9772b']) : pick(md.cols), taxi };
       cars.push(car); laneCars[l].push(car);
       if (bus) z += 1500;
     }
@@ -1361,24 +1374,37 @@ function drawLights() {
   ctx.globalCompositeOperation = 'source-over';
   lightsFx.length = 0; beams.length = 0;
 }
+function rearText(txt, xc, yw, z, size, col) {   // letreiro na traseira, só quando dá para ler
+  P(xc, yw, z); const px = size * _s; if (px < 4) return;
+  ctx.fillStyle = col; ctx.font = '900 ' + px + 'px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(txt, _x, _y);
+}
 function drawCar(c) {
-  const z = c.z, xc = c.x * ROAD, front = c.t === 'on';
-  if (z - camZ < 60 || (S / (z - camZ)) * 184 < 1.5) return;
-  shadow(xc, 100, z - 10, z + 440);
-  box(xc, 92, z, z + 430, 22, 88, c.col, shade(c.col, 0.72));
-  face(xc, 92, z, 22, 88, shade(c.col, 0.9));
-  face(xc, 92, z, 22, 40, '#26282c');
-  face(xc - 66, 22, z, 60, 78, front ? '#fff6c8' : '#e3262e'); face(xc + 66, 22, z, 60, 78, front ? '#fff6c8' : '#e3262e');
-  if (!front) face(xc, 26, z, 44, 58, '#e9e9e6');
-  face(xc - 80, 12, z, 0, 26, '#131416'); face(xc + 80, 12, z, 0, 26, '#131416');
-  const c0 = front ? z + 130 : z + 75, c1 = front ? z + 350 : z + 300;
-  box(xc, 78, c0, c1, 88, 142, shade(c.col, 1.08), '#1e2a36');
-  face(xc, 78, c0, 88, 142, front ? '#9fc3dd' : '#1e2a36');
-  if (c.taxi) face(xc, 18, (c0 + c1) / 2, 142, 156, '#ffd100');
+  const z = c.z, xc = c.x * ROAD, m = c.md || BYD_CARS[1], hw = m.hw, L = m.len, b = m.belt;
+  if (z - camZ < 60 || (S / (z - camZ)) * hw * 2 < 1.5) return;
+  const body = c.col, dark = shade(body, 0.72), mid = shade(body, 0.9), glass = '#1e2a36';
+  shadow(xc, hw + 8, z - 10, z + L + 10);
+  box(xc, hw, z, z + L, 24, b, body, dark);                                    // carroceria
+  if (m.style === 'pickup') box(xc, hw - 9, z + 9, z + m.cab[0] - 6, b - 1, b, '#1d1f23', '#1d1f23');   // caçamba aberta
+  const cw = hw * m.cw;
+  box(xc, cw, z + m.cab[0], z + m.cab[1], b, m.h, shade(body, 1.08), glass);   // cabine e teto
+  face(xc, cw, z + m.cab[0], b, m.h, body);                                    // coluna traseira
+  face(xc, cw * (m.style === 'pickup' ? 0.86 : 0.9), z + m.cab[0], b + 7, m.h - (m.style === 'sedan' ? 6 : 12), glass);   // vidro traseiro
+  face(xc, hw, z, 24, b, mid);                                                 // tampa traseira
+  face(xc, hw, z, 24, 44, '#26282c');                                          // para-choque
+  face(xc - hw + 14, 13, z, 0, 28, '#131416'); face(xc + hw - 14, 13, z, 0, 28, '#131416');
+  const ly0 = b - 26, ly1 = b - 13;
+  if (m.bar) {                                                                 // lanterna em barra inteiriça
+    face(xc, hw - 6, z, ly0 + 4, ly1 - 3, '#a5141c');
+    face(xc - hw + 22, 18, z, ly0, ly1, '#e3262e'); face(xc + hw - 22, 18, z, ly0, ly1, '#e3262e');
+  } else { face(xc - hw + 22, 20, z, ly0 - 4, ly1, '#e3262e'); face(xc + hw - 22, 20, z, ly0 - 4, ly1, '#e3262e'); }
+  if (m.style === 'pickup') face(xc, hw - 4, z, b - 6, b, shade(body, 0.6));   // borda da tampa da caçamba
+  rearText('BYD', xc, (m.style === 'pickup' ? b - 44 : ly0 - 14), z, m.style === 'pickup' ? 22 : 15, body === '#2a2c31' || body === '#3a3d44' ? '#e9e9e6' : '#222');
+  face(xc, 22, z, 30, 40, '#e9e9e6');                                          // placa
+  if (c.taxi) face(xc, 20, z + (m.cab[0] + m.cab[1]) / 2, m.h, m.h + 13, '#ffd100');
   if (pal.night) {
-    const col = front ? '255,244,200' : '255,40,40';
-    lamp(xc - 66, 69, z, 17, col); lamp(xc + 66, 69, z, 17, col);
-    if (front) beam(xc, z - 1700, z, 300, 95, 0.16); else beam(xc, z + 430, z + 2000, 95, 300, 0.13);
+    lamp(xc - hw + 22, (ly0 + ly1) / 2, z, 16, '255,40,40'); lamp(xc + hw - 22, (ly0 + ly1) / 2, z, 16, '255,40,40');
+    beam(xc, z + L, z + L + 2000, hw, 300, 0.13);
   }
 }
 function drawBus(c) {
@@ -1395,6 +1421,8 @@ function drawBus(c) {
   face(xc - 104, 18, z, 70, 92, '#e3262e'); face(xc + 104, 18, z, 70, 92, '#e3262e');
   face(xc, 122, z, 285, 302, '#f2b632');
   face(xc - 100, 16, z, 0, 36, '#131416'); face(xc + 100, 16, z, 0, 36, '#131416');
+  rearText('BYD', xc, 130, z, 34, '#ffffff');
+  rearText('100% ELÉTRICO', xc, 76, z, 15, '#ffffff');
   lamp(xc - 104, 81, z, 16, '255,40,40'); lamp(xc + 104, 81, z, 16, '255,40,40');
   beam(xc, z + c.len, z + c.len + 1800, 120, 340, 0.13);
 }
@@ -1847,7 +1875,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, veh: M.id, running, stam, tired, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, carModels: cars.filter(c => c.md).map(c => c.md.n).filter((v, i, a) => a.indexOf(v) === i), veh: M.id, running, stam, tired, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
