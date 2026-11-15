@@ -1312,12 +1312,15 @@ function drawFront(n, k, side) {       // face do prédio voltada para a câmera
   }
   ctx.globalAlpha = 1;
 }
-function drawShop(o) {               // placa da loja na fachada, letra a letra em perspectiva
+function drawShop(o, lit) {          // placa da loja na fachada, letra a letra em perspectiva
   if (o.z1 - camZ < 150 || o.z0 - camZ > 16000) return;
+  const mc = o.bl.shop === "McDONALD'S";
+  if (mc && pal.night && !lit) shopGlow.push(o);
   const xw = (o.side ? BL : -BL) * ROAD, sc = o.bl.sc;
   const zn = Math.max(o.z0, camZ + 110);
   P(xw, 302, zn); const xa = _x, ya0 = _y; P(xw, 398, zn); const ya1 = _y;
   P(xw, 302, o.z1); const xb = _x, yb0 = _y; P(xw, 398, o.z1); const yb1 = _y;
+  if (lit) glow((xa + xb) / 2, (ya0 + ya1 + yb0 + yb1) / 4, Math.max(Math.abs(xb - xa), Math.abs(ya0 - ya1)) * 0.9, '255,80,40', 0.32);
   ctx.fillStyle = sc[0]; ctx.beginPath(); ctx.moveTo(xa, ya0); ctx.lineTo(xa, ya1); ctx.lineTo(xb, yb1); ctx.lineTo(xb, yb0); ctx.fill();
   if (Math.abs(ya0 - ya1) < 5) return;
   const name = o.bl.shop, N = name.length, step = (o.z1 - o.z0) / N;
@@ -1655,14 +1658,7 @@ function arches(x, yBase, w, h) {     // arcos dourados
 }
 function drawCust(o) {               // cliente esperando na calçada, com marcador visível de longe
   if (o.z - camZ < 70) return;
-  if (o.kind === 'loja') {            // totem da loja ao lado do atendente
-    P(o.x * ROAD - 170, 0, o.z + 80); const tx = _x, ty = _y, ts = _s, q2 = 210 * ts;
-    if (!offX(tx)) {
-      ctx.fillStyle = '#55585e'; ctx.fillRect(tx - 8 * ts, ty - 540 * ts, 16 * ts, 540 * ts);
-      if (imOk(IM.mcd)) { const tw = 250 * ts, th = tw * IM.mcd.naturalHeight / IM.mcd.naturalWidth; ctx.fillStyle = '#fafafa'; ctx.fillRect(tx - tw / 2 - 6 * ts, ty - 540 * ts - th - 12 * ts, tw + 12 * ts, th + 12 * ts); ctx.drawImage(IM.mcd, tx - tw / 2, ty - 540 * ts - th - 6 * ts, tw, th); }
-      else { ctx.fillStyle = '#da291c'; ctx.fillRect(tx - q2 / 2, ty - 540 * ts - q2, q2, q2); arches(tx, ty - 540 * ts - q2 * 0.16, q2 * 0.72, q2 * 0.64); }
-    }
-  }
+  if (o.kind === 'loja') drawTotem(o, false);
   drawPed(o);
   P(o.x * ROAD, 0, o.z); const x = _x, y = _y, s = _s;
   if (offX(x)) return;
@@ -1676,6 +1672,25 @@ function drawCust(o) {               // cliente esperando na calçada, com marca
   ctx.fillStyle = o.done ? '#2fbf71' : cur ? (loja ? '#da291c' : '#ffd100') : '#9aa0a8'; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, r * 0.14);
   ctx.beginPath(); ctx.moveTo(x, my + r * 1.9); ctx.lineTo(x - r * 0.8, my + r * 0.55); ctx.arc(x, my, r, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
   if (r > 6) { ctx.fillStyle = loja && !o.done ? '#ffc72c' : '#111'; ctx.font = '900 ' + r * 1.2 + 'px Helvetica,Arial,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.done ? '✓' : String(o.n), x, my + r * 0.08); }
+}
+const storeGlow = [], shopGlow = [];  // logo e letreiro do McDonald's redesenhados acesos à noite
+function glow(x, y, r, rgb, a) {      // halo de luz em volta de um letreiro
+  if (r < 2) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.globalCompositeOperation = 'source-over';
+}
+function drawTotem(o, lit) {          // totem com o logo do McDonald's ao lado da loja
+  P(o.x * ROAD - 150, 0, o.z + 260); const tx = _x, ty = _y, ts = _s, q2 = 210 * ts;
+  if (offX(tx)) return;
+  if (pal.night && !lit) storeGlow.push(o);
+  const tw = 330 * ts, th = imOk(IM.mcd) ? tw * IM.mcd.naturalHeight / IM.mcd.naturalWidth : q2, top = ty - 70 * ts - th - 12 * ts;
+  if (lit) glow(tx, top + th / 2, tw * 1.7, '255,199,44', 0.55); glow(tx, ty, tw * 0.9, '255,170,60', 0.22);   // halo no letreiro e luz no chão          // o letreiro ilumina o entorno
+  if (!lit) { ctx.fillStyle = '#3d4046'; ctx.fillRect(tx - tw * 0.35, ty - 70 * ts, tw * 0.7, 70 * ts); }
+  if (imOk(IM.mcd)) {
+    ctx.fillStyle = lit ? '#ffffff' : '#fafafa'; ctx.fillRect(tx - tw / 2 - 6 * ts, top, tw + 12 * ts, th + 12 * ts);
+    ctx.drawImage(IM.mcd, tx - tw / 2, top + 6 * ts, tw, th);
+  } else { ctx.fillStyle = '#da291c'; ctx.fillRect(tx - q2 / 2, ty - 70 * ts - q2, q2, q2); arches(tx, ty - 70 * ts - q2 * 0.16, q2 * 0.72, q2 * 0.64); }
 }
 const mupiGlow = [];                 // painéis redesenhados acesos à noite
 function drawMupi(o, lit) {          // painel de mobiliário urbano: moldura escura, face iluminada e pedestal
@@ -1740,7 +1755,7 @@ function spriteAt(o) {
     case 'tree': drawTree(o); break;
     case 'pole': drawPole(o); break;
     case 'sign': drawSign(o); break;
-    case 'shop': drawShop(o); break;
+    case 'shop': drawShop(o, false); break;
     case 'crack': drawCrack(o); break;
     case 'bustxt': drawBusTxt(o); break;
     case 'finish': drawFinish(o); break;
@@ -1852,8 +1867,9 @@ function render() {
     if (b.length) { if (b.length > 1) b.sort(byFar); for (let i = 0; i < b.length; i++) spriteAt(b[i]); }
   }
   if (pal.overlay) { ctx.fillStyle = pal.overlay; ctx.fillRect(0, 0, W, H); }
-  if (pal.night) { for (let i = 0; i < mupiGlow.length; i++) drawMupi(mupiGlow[i], true); mupiGlow.length = 0; drawLights(); riderPass = 1; drawRider(); riderPass = 0; }   // o entregador fica por cima do facho do próprio farol
-  else { lightsFx.length = 0; beams.length = 0; }
+  if (pal.night) { for (let i = 0; i < shopGlow.length; i++) drawShop(shopGlow[i], true); for (let i = 0; i < storeGlow.length; i++) drawTotem(storeGlow[i], true);
+    shopGlow.length = 0; storeGlow.length = 0; for (let i = 0; i < mupiGlow.length; i++) drawMupi(mupiGlow[i], true); mupiGlow.length = 0; drawLights(); riderPass = 1; drawRider(); riderPass = 0; }   // o entregador fica por cima do facho do próprio farol
+  else { lightsFx.length = 0; beams.length = 0; shopGlow.length = 0; storeGlow.length = 0; }
   to8bit();
   hx.clearRect(0, 0, FW, FHH);
   if (state === 'play') { drawMinimap(); drawSpeedo(); }
