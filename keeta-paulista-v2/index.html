@@ -158,6 +158,10 @@
   .coupon small { display:block; font-size:11px; color:#ff8a8d; margin-top:4px; }
   #tBonus { font-size:8.5px; font-weight:800; margin-top:4px; color:#ffd100; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 1px #000; }
   #tBonus.ok { color:#7dffb0; } #tBonus.no { color:#8a8f98; text-decoration:line-through; }
+  table.expo { width:100%; border-collapse:collapse; font-size:12px; margin:10px 0; }
+  table.expo th, table.expo td { border:1px solid rgba(255,255,255,.15); padding:5px 4px; text-align:center; }
+  table.expo th { color:#ffd100; font-size:10.5px; } table.expo td:first-child { text-align:left; font-weight:700; }
+  table.expo small { display:block; color:#8e919a; font-size:10px; }
   .best { font-size:12px; color:#8e919a; text-align:center; margin-top:12px; }
   @media (max-height:460px) { .card { max-width:560px; } .card .btn { position:sticky; bottom:0; padding:12px; } .oclock { font-size:32px; margin:6px 0 0; } dl { gap:3px 12px; font-size:13px; margin:8px 0; } h2 { font-size:19px; margin:6px 0 2px; }
     .card { padding:14px 18px; } h1 { font-size:26px; } ul.how li { padding:4px 0; font-size:13px; } p { font-size:13px; margin:5px 0; } }
@@ -402,7 +406,7 @@ function bonusState() {              // 1 = cumprida, 0 = em andamento, -1 = per
   if (bonus.id === 'care') return bCare ? (state === 'result' ? 1 : 0) : -1;
   return bFast ? (state === 'result' ? 1 : 0) : -1;
 }
-function newTurn() { level = FASE_PARAM ? START_LEVEL - 1 : prof.veh * 2; money = 0;   // o turno recomeça na primeira fase do veículo já liberado
+function newTurn() { expoTurn = expoBlank(); level = FASE_PARAM ? START_LEVEL - 1 : prof.veh * 2; money = 0;   // o turno recomeça na primeira fase do veículo já liberado
   delivered = 0; streak = 0; bestStreak = 0; nextOffer(); }
 const ZONE_BACK = 1500, ZONE_FWD = 600, STOP_V = 560;   // zona de entrega (cm) e velocidade máxima para entregar (20 km/h)
 const nextStop = () => stops[Math.min(stopIdx, stops.length - 1)];
@@ -430,6 +434,76 @@ const buckets = []; for (let i = 0; i < DRAW; i++) buckets.push([]);
 let skyline = [];
 const ME = { z:0, t:'me' };
 let best = { n:0, m:0 };
+/* ---------- Contador de exposição de marca (interno) ----------
+   Critério: a peça conta 1 exposição quando fica com pelo menos 50% da área visível na tela, fora dos painéis do jogo,
+   com no mínimo 18 px de altura, por 1 segundo seguido. Cada peça conta uma vez por passagem. Também soma o tempo visível. */
+const EXPO_BRANDS = { keeta:'Keeta', mcd:"McDonald's", coke:'Coca-Cola' };
+const EXPO_PLACES = { painel:'Painel de rua', loja:'Letreiro da loja', fachada:'Fachada da loja' };
+const EXPO_MIN_T = 1, EXPO_MIN_FRAC = 0.5, EXPO_MIN_H = 18;
+const expoBlank = () => { const o = {}; Object.keys(EXPO_BRANDS).forEach(b => { o[b] = {}; Object.keys(EXPO_PLACES).forEach(pl => { o[b][pl] = { n:0, t:0 }; }); }); return o; };
+let expoAll = { since: new Date().toISOString(), turns: 0, data: expoBlank() }, expoTurn = expoBlank();
+try { const ej = JSON.parse(localStorage.getItem('correPaulistaExpoV2') || 'null'); if (ej && ej.data && ej.data.keeta) expoAll = ej; } catch (e) {}
+const saveExpo = () => { try { localStorage.setItem('correPaulistaExpoV2', JSON.stringify(expoAll)); } catch (e) {} };
+let expoSaveT = 5;
+window.addEventListener('pagehide', () => saveExpo());
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveExpo(); });
+let expoFrame = [], expoPrev = new Set(), expoHud = [], expoHudT = 0;
+function expoMark(o, brand, place, x0, y0, x1, y1) {   // chamado no desenho; coordenadas do canvas em pixels do jogo
+  if (state !== 'play') return;
+  expoFrame.push({ o, brand, place, r: [Math.min(x0, x1) * PXS, Math.min(y0, y1) * PXS, Math.max(x0, x1) * PXS, Math.max(y0, y1) * PXS] });
+}
+function expoHudRects() {             // áreas da tela cobertas pelos painéis do jogo
+  const r = [], add = el => { if (!el || el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return; const b = el.getBoundingClientRect(); if (b.width && b.height) r.push([b.left, b.top, b.right, b.bottom]); };
+  ['hl', 'hc', 'hr', 'brake', 'sig'].forEach(id => { const el = $(id); if (el && getComputedStyle(el).display !== 'none') add(el); });
+  const pc = document.querySelector('#prep.on .pcard'); if (pc) add(pc);
+  const mr = clamp(Math.min(FW, FHH) * 0.15, 46, 84), mx = 10 + sL + mr, my = FHH - 10 - sB - mr; r.push([mx - mr, my - mr, mx + mr, my + mr]);
+  const sw = 128 * U, sh = 76 * U; r.push([FW - 10 - sR - sw, FHH - 10 - sB - sh, FW - 10 - sR, FHH - 10 - sB]);
+  return r;
+}
+const ov = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+function expoTick(dt) {               // fecha a contagem do quadro
+  const now = new Set();
+  if (state === 'play' && expoFrame.length) {
+    if ((expoHudT -= dt) <= 0) { expoHud = expoHudRects(); expoHudT = 0.25; }
+    for (const e of expoFrame) {
+      const r = e.r, area = (r[2] - r[0]) * (r[3] - r[1]);
+      if (area <= 0 || r[3] - r[1] < EXPO_MIN_H) continue;
+      let vis = ov(r, [0, 0, FW, FHH]);
+      for (const h of expoHud) vis -= ov(r, h);
+      if (vis / area < EXPO_MIN_FRAC) continue;
+      const o = e.o; now.add(o);
+      o._et = (expoPrev.has(o) ? o._et || 0 : 0) + dt;
+      const k = e.brand + '|' + e.place;
+      if (o._et >= EXPO_MIN_T) {
+        if (!o._ec) { o._ec = {}; }
+        if (!o._ec[k]) { o._ec[k] = 1; expoTurn[e.brand][e.place].n++; expoAll.data[e.brand][e.place].n++; }
+        expoTurn[e.brand][e.place].t += dt; expoAll.data[e.brand][e.place].t += dt;
+      }
+    }
+  }
+  expoPrev = now; expoFrame = [];
+  if ((expoSaveT -= dt) <= 0) { expoSaveT = 5; if (state === 'play') saveExpo(); }   // grava a cada 5 s de jogo
+}
+function expoSum(d, brand) { let n = 0, t = 0; Object.keys(EXPO_PLACES).forEach(pl => { n += d[brand][pl].n; t += d[brand][pl].t; }); return { n, t }; }
+function expoTable(d) {
+  let h = '<table class="expo"><tr><th>Marca</th>' + Object.values(EXPO_PLACES).map(v => '<th>' + v + '</th>').join('') + '<th>Total</th></tr>';
+  Object.keys(EXPO_BRANDS).forEach(b => {
+    const tot = expoSum(d, b);
+    h += '<tr><td>' + EXPO_BRANDS[b] + '</td>' + Object.keys(EXPO_PLACES).map(pl => { const c = d[b][pl]; return '<td>' + (c.n || c.t ? c.n + '<small>' + c.t.toFixed(0) + ' s</small>' : '–') + '</td>'; }).join('') +
+      '<td><b>' + tot.n + '</b><small>' + tot.t.toFixed(0) + ' s</small></td></tr>';
+  });
+  return h + '</table>';
+}
+function expoReport() {               // dados para exportar ou enviar à plataforma
+  return { criterio: { areaVisivelMinima: EXPO_MIN_FRAC, segundosMinimos: EXPO_MIN_T, alturaMinimaPx: EXPO_MIN_H }, desde: expoAll.since, turnos: expoAll.turns,
+    acumulado: JSON.parse(JSON.stringify(expoAll.data)), turnoAtual: JSON.parse(JSON.stringify(expoTurn)) };
+}
+function expoEndTurn() {
+  expoAll.turns++; saveExpo();
+  try { if (window.parent && window.parent !== window) window.parent.postMessage({ type:'keeta-exposicao', relatorio: expoReport() }, '*'); } catch (e) {}
+}
+window.keetaExposicao = expoReport;   // leitura pelo console ou pela plataforma que embutir o jogo
+const SHOW_REPORT = new URLSearchParams(location.search).has('relatorio');
 try { const b = JSON.parse(localStorage.getItem('correPaulistaBestV2') || 'null'); if (b && typeof b.n === 'number') best = b; } catch (e) {}
 
 /* ================= geração da fase ================= */
@@ -713,7 +787,9 @@ const backScreen = () => { if (curScreen.regen) curScreen.regen(); else show(cur
 card.addEventListener('click', e => {
   const a = e.target.closest('[data-act]'); if (!a) return;
   initAudio(); const act = a.dataset.act;
-  if (act === 'shop') showShop(); else if (act === 'coupons') showCoupons();
+  if (act === 'shop') showShop(); else if (act === 'coupons') showCoupons(); else if (act === 'expo') showExpo();
+  else if (act === 'expo-copy') { const t = JSON.stringify(expoReport(), null, 2); try { navigator.clipboard.writeText(t); a.textContent = 'Copiado'; } catch (x) { a.textContent = 'Não foi possível copiar'; } }
+  else if (act === 'expo-reset') { expoAll = { since: new Date().toISOString(), turns: 0, data: expoBlank() }; expoTurn = expoBlank(); saveExpo(); showExpo(); }
   else if (act.startsWith('buy:')) {
     const id = act.slice(4), lv = prof.upg[id], cost = UPG_COST[lv];
     if (lv < 3 && prof.wallet >= cost) { prof.wallet -= cost; prof.upg[id]++; saveProf(); beep(990, 0.08, 'square', 0.07); beep(1320, 0.12, 'square', 0.07, 0.08); showShop(); }
@@ -728,6 +804,13 @@ function showShop() {
 }
 function couponHtml(c) {
   return '<div class="coupon">' + c.desc + '<b>' + c.code + '</b>' + (c.demo ? '<small>DEMONSTRAÇÃO: código de exemplo, sem valor real</small>' : '') + '</div>';
+}
+function showExpo() {
+  show('<span class="tag">Relatório interno</span><h2>Exposição de marca</h2>' +
+    '<p>Conta 1 exposição quando a peça fica com 50% ou mais visível, fora dos painéis do jogo, por 1 s seguido. O número de baixo é o tempo total visível. Dados só deste aparelho.</p>' +
+    '<p style="color:#ffd100;font-weight:700">Acumulado desde ' + new Date(expoAll.since).toLocaleDateString('pt-BR') + ' · ' + expoAll.turns + ' turno(s) encerrado(s)</p>' + expoTable(expoAll.data) +
+    '<p style="color:#ffd100;font-weight:700">Turno em andamento (zera ao recarregar a página)</p>' + expoTable(expoTurn) +
+    '<button class="btn">VOLTAR</button><div class="row2"><button class="btn2" data-act="expo-copy">Copiar JSON</button><button class="btn2" data-act="expo-reset">Zerar</button></div>', backScreen, true);
 }
 function showCoupons() {
   let h = '<span class="tag">Cupons</span><h2>Seus cupons</h2>';
@@ -767,7 +850,8 @@ function showMenu() {
     '</ul>' +
     '<p class="best" style="text-align:left">Jogo de ficção. No trânsito real, respeite a sinalização, os limites de velocidade e os pedestres.</p>' +
     '<button class="btn">COMEÇAR TURNO</button>' +
-    '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>' + bestLine(), newTurn);
+    '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>' +
+    (SHOW_REPORT ? '<button class="btn2" data-act="expo">Relatório de exposição</button>' : '') + bestLine(), newTurn);
   curScreen.regen = showMenu;
 }
 function nextOffer() {
@@ -836,7 +920,7 @@ function finishDelivery() {            // fim da fase: resumo de todas as entreg
     '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>', nextOffer);
 }
 function gameOver(why) {
-  state = 'over';
+  state = 'over'; expoEndTurn();
   let rec = false;
   if (delivered > best.n || (delivered === best.n && money > best.m)) {
     best = { n: delivered, m: money }; rec = delivered > 0;
@@ -1320,6 +1404,7 @@ function drawShop(o, lit) {          // placa da loja na fachada, letra a letra 
   const zn = Math.max(o.z0, camZ + 110);
   P(xw, 302, zn); const xa = _x, ya0 = _y; P(xw, 398, zn); const ya1 = _y;
   P(xw, 302, o.z1); const xb = _x, yb0 = _y; P(xw, 398, o.z1); const yb1 = _y;
+  if (mc && !lit) expoMark(o, 'mcd', 'fachada', Math.min(xa, xb), Math.min(ya1, yb1), Math.max(xa, xb), Math.max(ya0, yb0));
   if (lit) glow((xa + xb) / 2, (ya0 + ya1 + yb0 + yb1) / 4, Math.max(Math.abs(xb - xa), Math.abs(ya0 - ya1)) * 0.9, '255,80,40', 0.32);
   ctx.fillStyle = sc[0]; ctx.beginPath(); ctx.moveTo(xa, ya0); ctx.lineTo(xa, ya1); ctx.lineTo(xb, yb1); ctx.lineTo(xb, yb0); ctx.fill();
   if (Math.abs(ya0 - ya1) < 5) return;
@@ -1685,8 +1770,8 @@ function drawTotem(o, lit) {          // totem com o logo do McDonald's ao lado 
   if (offX(tx)) return;
   if (pal.night && !lit) storeGlow.push(o);
   const tw = 330 * ts, th = imOk(IM.mcd) ? tw * IM.mcd.naturalHeight / IM.mcd.naturalWidth : q2, top = ty - 70 * ts - th - 12 * ts;
-  if (lit) glow(tx, top + th / 2, tw * 1.7, '255,199,44', 0.55); glow(tx, ty, tw * 0.9, '255,170,60', 0.22);   // halo no letreiro e luz no chão          // o letreiro ilumina o entorno
-  if (!lit) { ctx.fillStyle = '#3d4046'; ctx.fillRect(tx - tw * 0.35, ty - 70 * ts, tw * 0.7, 70 * ts); }
+  if (lit) { glow(tx, top + th / 2, tw * 1.7, '255,199,44', 0.55); glow(tx, ty, tw * 0.9, '255,170,60', 0.22); }   // halo no letreiro e luz no chão          // o letreiro ilumina o entorno
+  if (!lit) { expoMark(o, 'mcd', 'loja', tx - tw / 2, top, tx + tw / 2, top + th + 12 * ts); ctx.fillStyle = '#3d4046'; ctx.fillRect(tx - tw * 0.35, ty - 70 * ts, tw * 0.7, 70 * ts); }
   if (imOk(IM.mcd)) {
     ctx.fillStyle = lit ? '#ffffff' : '#fafafa'; ctx.fillRect(tx - tw / 2 - 6 * ts, top, tw + 12 * ts, th + 12 * ts);
     ctx.drawImage(IM.mcd, tx - tw / 2, top + 6 * ts, tw, th);
@@ -1699,6 +1784,7 @@ function drawMupi(o, lit) {          // painel de mobiliário urbano: moldura es
   if (w < 3 || offX(x)) return;
   if (pal.night && !lit) mupiGlow.push(o);
   const top = y - 62 * s - h;
+  if (!lit) expoMark(o, ['keeta', 'mcd', 'coke'][o.b], 'painel', x - w / 2, top, x + w / 2, top + h);
   if (!lit) {
     ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(x, y, 60 * s, 14 * s, 0, 0, 7); ctx.fill();
     ctx.fillStyle = '#15171a'; ctx.fillRect(x - 42 * s, y - 8 * s, 84 * s, 8 * s); ctx.fillRect(x - 8 * s, y - 62 * s, 16 * s, 56 * s);
@@ -1883,6 +1969,7 @@ function frame(now) {
   if (state === 'play') { update(dt); if (state === 'play') updateHud(); }
   else { tAnim += dt; if (state === 'offer') { timeLeft -= dt; const oc = $('oClock'); if (oc) oc.textContent = fmtClock(timeLeft); } }
   if (segSprites) render();
+  expoTick(dt);
   requestAnimationFrame(frame);
 }
 
@@ -1891,7 +1978,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, carModels: cars.filter(c => c.md).map(c => c.md.n).filter((v, i, a) => a.indexOf(v) === i), veh: M.id, running, stam, tired, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, carModels: cars.filter(c => c.md).map(c => c.md.n).filter((v, i, a) => a.indexOf(v) === i), expo: expoReport(), veh: M.id, running, stam, tired, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
