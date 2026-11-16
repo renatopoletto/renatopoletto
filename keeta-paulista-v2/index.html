@@ -158,10 +158,6 @@
   .coupon small { display:block; font-size:11px; color:#ff8a8d; margin-top:4px; }
   #tBonus { font-size:8.5px; font-weight:800; margin-top:4px; color:#ffd100; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 1px #000; }
   #tBonus.ok { color:#7dffb0; } #tBonus.no { color:#8a8f98; text-decoration:line-through; }
-  table.expo { width:100%; border-collapse:collapse; font-size:12px; margin:10px 0; }
-  table.expo th, table.expo td { border:1px solid rgba(255,255,255,.15); padding:5px 4px; text-align:center; }
-  table.expo th { color:#ffd100; font-size:10.5px; } table.expo td:first-child { text-align:left; font-weight:700; }
-  table.expo small { display:block; color:#8e919a; font-size:10px; }
   .best { font-size:12px; color:#8e919a; text-align:center; margin-top:12px; }
   @media (max-height:460px) { .card { max-width:560px; } .card .btn { position:sticky; bottom:0; padding:12px; } .oclock { font-size:32px; margin:6px 0 0; } dl { gap:3px 12px; font-size:13px; margin:8px 0; } h2 { font-size:19px; margin:6px 0 2px; }
     .card { padding:14px 18px; } h1 { font-size:26px; } ul.how li { padding:4px 0; font-size:13px; } p { font-size:13px; margin:5px 0; } }
@@ -406,7 +402,7 @@ function bonusState() {              // 1 = cumprida, 0 = em andamento, -1 = per
   if (bonus.id === 'care') return bCare ? (state === 'result' ? 1 : 0) : -1;
   return bFast ? (state === 'result' ? 1 : 0) : -1;
 }
-function newTurn() { expoTurn = expoBlank(); level = FASE_PARAM ? START_LEVEL - 1 : prof.veh * 2; money = 0;   // o turno recomeça na primeira fase do veículo já liberado
+function newTurn() { level = FASE_PARAM ? START_LEVEL - 1 : prof.veh * 2; money = 0;   // o turno recomeça na primeira fase do veículo já liberado
   delivered = 0; streak = 0; bestStreak = 0; nextOffer(); }
 const ZONE_BACK = 1500, ZONE_FWD = 600, STOP_V = 560;   // zona de entrega (cm) e velocidade máxima para entregar (20 km/h)
 const nextStop = () => stops[Math.min(stopIdx, stops.length - 1)];
@@ -441,12 +437,12 @@ const EXPO_BRANDS = { keeta:'Keeta', mcd:"McDonald's", coke:'Coca-Cola' };
 const EXPO_PLACES = { painel:'Painel de rua', loja:'Letreiro da loja', fachada:'Fachada da loja' };
 const EXPO_MIN_T = 1, EXPO_MIN_FRAC = 0.5, EXPO_MIN_H = 18;
 const expoBlank = () => { const o = {}; Object.keys(EXPO_BRANDS).forEach(b => { o[b] = {}; Object.keys(EXPO_PLACES).forEach(pl => { o[b][pl] = { n:0, t:0 }; }); }); return o; };
-let expoAll = { since: new Date().toISOString(), turns: 0, data: expoBlank() }, expoTurn = expoBlank();
+let expoAll = { since: new Date().toISOString(), turns: 0, data: expoBlank() };
 try { const ej = JSON.parse(localStorage.getItem('correPaulistaExpoV2') || 'null'); if (ej && ej.data && ej.data.keeta) expoAll = ej; } catch (e) {}
 const saveExpo = () => { try { localStorage.setItem('correPaulistaExpoV2', JSON.stringify(expoAll)); } catch (e) {} };
 let expoSaveT = 5;
-window.addEventListener('pagehide', () => saveExpo());
-document.addEventListener('visibilitychange', () => { if (document.hidden) saveExpo(); });
+window.addEventListener('pagehide', () => { saveExpo(); expoFlush('saida'); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { saveExpo(); expoFlush('app-em-segundo-plano'); } });
 let expoFrame = [], expoPrev = new Set(), expoHud = [], expoHudT = 0;
 function expoMark(o, brand, place, x0, y0, x1, y1) {   // chamado no desenho; coordenadas do canvas em pixels do jogo
   if (state !== 'play') return;
@@ -476,34 +472,51 @@ function expoTick(dt) {               // fecha a contagem do quadro
       const k = e.brand + '|' + e.place;
       if (o._et >= EXPO_MIN_T) {
         if (!o._ec) { o._ec = {}; }
-        if (!o._ec[k]) { o._ec[k] = 1; expoTurn[e.brand][e.place].n++; expoAll.data[e.brand][e.place].n++; }
-        expoTurn[e.brand][e.place].t += dt; expoAll.data[e.brand][e.place].t += dt;
+        if (!o._ec[k]) { o._ec[k] = 1; expoPend[e.brand][e.place].n++; expoAll.data[e.brand][e.place].n++; }
+        expoPend[e.brand][e.place].t += dt; expoAll.data[e.brand][e.place].t += dt;
       }
     }
   }
   expoPrev = now; expoFrame = [];
   if ((expoSaveT -= dt) <= 0) { expoSaveT = 5; if (state === 'play') saveExpo(); }   // grava a cada 5 s de jogo
 }
-function expoSum(d, brand) { let n = 0, t = 0; Object.keys(EXPO_PLACES).forEach(pl => { n += d[brand][pl].n; t += d[brand][pl].t; }); return { n, t }; }
-function expoTable(d) {
-  let h = '<table class="expo"><tr><th>Marca</th>' + Object.values(EXPO_PLACES).map(v => '<th>' + v + '</th>').join('') + '<th>Total</th></tr>';
-  Object.keys(EXPO_BRANDS).forEach(b => {
-    const tot = expoSum(d, b);
-    h += '<tr><td>' + EXPO_BRANDS[b] + '</td>' + Object.keys(EXPO_PLACES).map(pl => { const c = d[b][pl]; return '<td>' + (c.n || c.t ? c.n + '<small>' + c.t.toFixed(0) + ' s</small>' : '–') + '</td>'; }).join('') +
-      '<td><b>' + tot.n + '</b><small>' + tot.t.toFixed(0) + ' s</small></td></tr>';
-  });
-  return h + '</table>';
+
+/* ---------- Envio para a Keeta (sem nenhuma interface para o jogador) ----------
+   Configuração, em ordem de prioridade:
+   1) a plataforma que embute o jogo manda postMessage {type:'keeta-config', jogador:'<id do usuário>', endpoint:'https://...'}
+   2) parâmetros no endereço: ?jogador=<id>&coleta=<url codificada>
+   3) EXPO_ENDPOINT abaixo. Sem endpoint, os lotes só vão por postMessage para a página que embute o jogo.
+   Sem id do jogador, usa um id anônimo aleatório guardado no aparelho. */
+const EXPO_ENDPOINT = '';
+const QS = new URLSearchParams(location.search);
+let expoEndpoint = QS.get('coleta') || EXPO_ENDPOINT;
+let playerId = QS.get('jogador') || '';
+let anonId = ''; try { anonId = localStorage.getItem('correPaulistaAnonId') || ''; } catch (e) {}
+if (!anonId) { anonId = 'anon-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); try { localStorage.setItem('correPaulistaAnonId', anonId); } catch (e) {} }
+const sessionId = 's-' + Math.random().toString(36).slice(2, 10);
+let expoSeq = 0, expoPend = expoBlank(), expoPendFrom = new Date().toISOString();
+window.addEventListener('message', ev => {
+  const d = ev.data; if (!d || d.type !== 'keeta-config') return;
+  if (typeof d.jogador === 'string' && d.jogador) playerId = d.jogador.slice(0, 128);
+  if (typeof d.endpoint === 'string' && /^https:\/\//.test(d.endpoint)) expoEndpoint = d.endpoint;
+});
+function expoHasData(d) { return Object.keys(d).some(b => Object.keys(d[b]).some(pl => d[b][pl].n || d[b][pl].t > 0.05)); }
+function expoFlush(motivo) {           // envia o que foi acumulado desde o último lote
+  if (!expoHasData(expoPend)) return;
+  const exp = {};
+  Object.keys(expoPend).forEach(b => { exp[b] = {}; Object.keys(expoPend[b]).forEach(pl => { const c = expoPend[b][pl]; exp[b][pl] = { impressoes: c.n, segundos: Math.round(c.t * 10) / 10 }; }); });
+  const lote = { tipo:'keeta-exposicao', versao:1, jogador: playerId || null, jogadorAnonimo: anonId, sessao: sessionId, lote: ++expoSeq, motivo,
+    inicio: expoPendFrom, fim: new Date().toISOString(), fase: level, veiculo: M.id, circuito: circuit.name,
+    criterio: { areaVisivelMinima: EXPO_MIN_FRAC, segundosMinimos: EXPO_MIN_T, alturaMinimaPx: EXPO_MIN_H }, exposicoes: exp };
+  expoPend = expoBlank(); expoPendFrom = lote.fim;
+  try { if (window.parent && window.parent !== window) window.parent.postMessage(lote, '*'); } catch (e) {}
+  if (expoEndpoint) {
+    const body = JSON.stringify(lote); let ok = false;
+    try { ok = navigator.sendBeacon && navigator.sendBeacon(expoEndpoint, new Blob([body], { type:'text/plain;charset=UTF-8' })); } catch (e) {}
+    if (!ok) { try { fetch(expoEndpoint, { method:'POST', body, keepalive:true, mode:'no-cors', headers:{ 'Content-Type':'text/plain;charset=UTF-8' } }).catch(() => {}); } catch (e) {} }
+  }
 }
-function expoReport() {               // dados para exportar ou enviar à plataforma
-  return { criterio: { areaVisivelMinima: EXPO_MIN_FRAC, segundosMinimos: EXPO_MIN_T, alturaMinimaPx: EXPO_MIN_H }, desde: expoAll.since, turnos: expoAll.turns,
-    acumulado: JSON.parse(JSON.stringify(expoAll.data)), turnoAtual: JSON.parse(JSON.stringify(expoTurn)) };
-}
-function expoEndTurn() {
-  expoAll.turns++; saveExpo();
-  try { if (window.parent && window.parent !== window) window.parent.postMessage({ type:'keeta-exposicao', relatorio: expoReport() }, '*'); } catch (e) {}
-}
-window.keetaExposicao = expoReport;   // leitura pelo console ou pela plataforma que embutir o jogo
-const SHOW_REPORT = new URLSearchParams(location.search).has('relatorio');
+window.__expoPeek = () => ({ jogador: playerId || null, jogadorAnonimo: anonId, pendente: JSON.parse(JSON.stringify(expoPend)), acumulado: JSON.parse(JSON.stringify(expoAll.data)) });   // só para testes
 try { const b = JSON.parse(localStorage.getItem('correPaulistaBestV2') || 'null'); if (b && typeof b.n === 'number') best = b; } catch (e) {}
 
 /* ================= geração da fase ================= */
@@ -787,9 +800,7 @@ const backScreen = () => { if (curScreen.regen) curScreen.regen(); else show(cur
 card.addEventListener('click', e => {
   const a = e.target.closest('[data-act]'); if (!a) return;
   initAudio(); const act = a.dataset.act;
-  if (act === 'shop') showShop(); else if (act === 'coupons') showCoupons(); else if (act === 'expo') showExpo();
-  else if (act === 'expo-copy') { const t = JSON.stringify(expoReport(), null, 2); try { navigator.clipboard.writeText(t); a.textContent = 'Copiado'; } catch (x) { a.textContent = 'Não foi possível copiar'; } }
-  else if (act === 'expo-reset') { expoAll = { since: new Date().toISOString(), turns: 0, data: expoBlank() }; expoTurn = expoBlank(); saveExpo(); showExpo(); }
+  if (act === 'shop') showShop(); else if (act === 'coupons') showCoupons();
   else if (act.startsWith('buy:')) {
     const id = act.slice(4), lv = prof.upg[id], cost = UPG_COST[lv];
     if (lv < 3 && prof.wallet >= cost) { prof.wallet -= cost; prof.upg[id]++; saveProf(); beep(990, 0.08, 'square', 0.07); beep(1320, 0.12, 'square', 0.07, 0.08); showShop(); }
@@ -804,13 +815,6 @@ function showShop() {
 }
 function couponHtml(c) {
   return '<div class="coupon">' + c.desc + '<b>' + c.code + '</b>' + (c.demo ? '<small>DEMONSTRAÇÃO: código de exemplo, sem valor real</small>' : '') + '</div>';
-}
-function showExpo() {
-  show('<span class="tag">Relatório interno</span><h2>Exposição de marca</h2>' +
-    '<p>Conta 1 exposição quando a peça fica com 50% ou mais visível, fora dos painéis do jogo, por 1 s seguido. O número de baixo é o tempo total visível. Dados só deste aparelho.</p>' +
-    '<p style="color:#ffd100;font-weight:700">Acumulado desde ' + new Date(expoAll.since).toLocaleDateString('pt-BR') + ' · ' + expoAll.turns + ' turno(s) encerrado(s)</p>' + expoTable(expoAll.data) +
-    '<p style="color:#ffd100;font-weight:700">Turno em andamento (zera ao recarregar a página)</p>' + expoTable(expoTurn) +
-    '<button class="btn">VOLTAR</button><div class="row2"><button class="btn2" data-act="expo-copy">Copiar JSON</button><button class="btn2" data-act="expo-reset">Zerar</button></div>', backScreen, true);
 }
 function showCoupons() {
   let h = '<span class="tag">Cupons</span><h2>Seus cupons</h2>';
@@ -851,7 +855,7 @@ function showMenu() {
     '<p class="best" style="text-align:left">Jogo de ficção. No trânsito real, respeite a sinalização, os limites de velocidade e os pedestres.</p>' +
     '<button class="btn">COMEÇAR TURNO</button>' +
     '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>' +
-    (SHOW_REPORT ? '<button class="btn2" data-act="expo">Relatório de exposição</button>' : '') + bestLine(), newTurn);
+    bestLine(), newTurn);
   curScreen.regen = showMenu;
 }
 function nextOffer() {
@@ -891,6 +895,7 @@ function closeDelivery() {             // fecha a conta de uma entrega no moment
   delivered++; credit(earn);
 }
 function finishDelivery() {            // fim da fase: resumo de todas as entregas
+  expoFlush('fim-da-fase');
   state = 'result';
   const bOk = bonusState() === 1, bVal = bOk ? bonus.v : 0;
   credit(stunt + bVal);
@@ -920,7 +925,7 @@ function finishDelivery() {            // fim da fase: resumo de todas as entreg
     '<div class="row2"><button class="btn2" data-act="shop">Loja</button><button class="btn2" data-act="coupons">Cupons</button></div>', nextOffer);
 }
 function gameOver(why) {
-  state = 'over'; expoEndTurn();
+  state = 'over'; expoAll.turns++; saveExpo(); expoFlush('fim-do-turno');
   let rec = false;
   if (delivered > best.n || (delivered === best.n && money > best.m)) {
     best = { n: delivered, m: money }; rec = delivered > 0;
@@ -1978,7 +1983,7 @@ showMenu();
 requestAnimationFrame(frame);
 
 // gancho de teste (sem efeito no jogo)
-window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, carModels: cars.filter(c => c.md).map(c => c.md.n).filter((v, i, a) => a.indexOf(v) === i), expo: expoReport(), veh: M.id, running, stam, tired, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
+window.__game = { get s() { return { state, pos, px, speed, timeLeft, food, level, finishZ, money, gear, wheelie: wOn, stunt, carModels: cars.filter(c => c.md).map(c => c.md.n).filter((v, i, a) => a.indexOf(v) === i), veh: M.id, running, stam, tired, xmin: M.xmin, xmax: M.xmax, zoneMax: M.zoneMax, infractions, light: lights[pli] ? { d: lights[pli].z - pos - BIKE_LEN, st: lightState(lights[pli]).st } : null, stopDist: nextStop().z - pos, stopIdx, nStops: stops.length, tipLimit, kind: nextStop().kind, prep: !!prep, yieldCount, yielding, streak, wallet: prof.wallet, life: prof.life, tier: TIERS[tierIdx()].n, bonus: bonus.id, bonusState: bonusState(), musStep, musLevel: musLevel(), bpm: song.bpm, tunnel: blocks[1].some(b => b.style === 'tun'), parks: blocks[0].concat(blocks[1]).filter(b => b.style === 'park').length, oi, audio: AC ? AC.state : 'none', clock: fmtClock(timeLeft), circuit: circuit.name, curve: curve[Math.floor(pos / SEG)], dist: finishZ - pos }; },
   obst() { const r = [], f = pos + BIKE_LEN;
     cars.forEach(c => { if (c.z + c.len > pos && c.z < f + 4500) r.push({ x:c.x, hw:c.hw, d:c.z - f }); });
     oncoming.forEach(c => { if (c.z + c.len > pos && c.z < f + 9000) r.push({ x:c.x, hw:c.hw, d:(c.z - f) / 3 }); });
