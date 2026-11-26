@@ -287,9 +287,9 @@ export function createRoom(scene, skyTexture) {
   rbox(0.62, 0.015, 1.05, 0.006, '#5c7a5e', 3.35, 0.012, 1.18).castShadow = false;
   const bowl = (z, fill) => {
     cyl(0.17, 0.14, 0.09, '#f3ede1', 3.35, 0.06, z);
-    cyl(0.14, 0.14, 0.012, fill, 3.35, 0.103, z);
+    return cyl(0.14, 0.14, 0.012, fill, 3.35, 0.103, z);
   };
-  bowl(0.9, '#8a5a36'); bowl(1.45, mat('#7fc0df', { roughness: 0.1 }));
+  const kibble = bowl(0.9, '#8a5a36'); bowl(1.45, mat('#7fc0df', { roughness: 0.1 }));
 
   // ---------- caminha ----------
   blob(-1.6, 2.15, 1.6, 1.6);
@@ -391,5 +391,6 @@ export function createRoom(scene, skyTexture) {
     dangle.position.x = 2.68 + Math.sin(t * 1.1) * 0.02;
   }
 
-  return { yarn, setClock, setLights };
+  const setFood = (full) => { kibble.visible = full; };
+  return { yarn, setClock, setLights, setFood };
 }

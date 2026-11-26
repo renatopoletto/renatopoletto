@@ -4,6 +4,7 @@ import { catState, statusText } from './brain.js';
 import { createCat } from './cat.js';
 import { createRoom } from './room.js';
 import { createSky, skyColors } from './sky.js';
+import { load, feed } from './store.js';
 
 // ----- relógio (parâmetros de teste: ?hora=21:30 e ?vel=600) -----
 const params = new URLSearchParams(location.search);
@@ -18,6 +19,37 @@ if (hora) {
 const foco = params.has('foco');
 const perf0 = performance.now();
 const nowUtc = () => baseUtc + (performance.now() - perf0) * speed;
+
+let lastSkyDraw = -1e9, lastSecond = -1, lastStatus = '';
+const pad = (n) => String(n).padStart(2, '0');
+
+// ----- comida -----
+const testMode = !!hora || speed !== 1;
+const food = load(baseUtc, !testMode);
+if (params.get('fome') === '0') food.fedUntil = baseUtc + 6 * 3600e3;
+const elPote = document.getElementById('pote');
+const elAlimentar = document.getElementById('alimentar');
+elAlimentar.addEventListener('click', () => { feed(food, nowUtc(), !testMode); lastSecond = -1; });
+const dur = (ms) => { const m = Math.max(1, Math.round(ms / 60e3)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad(m % 60)} min`; };
+
+// ----- som (miado sintetizado; só toca depois de ligar no botão) -----
+let audio = null, lastMeow = 0;
+const elSom = document.getElementById('som');
+elSom.addEventListener('click', () => {
+  if (audio) { audio.close(); audio = null; } else audio = new (window.AudioContext || window.webkitAudioContext)();
+  elSom.textContent = audio ? 'Som ligado' : 'Som desligado';
+  elSom.setAttribute('aria-pressed', audio ? 'true' : 'false');
+});
+function playMeow() {
+  if (!audio) return;
+  const t = audio.currentTime, o = audio.createOscillator(), f = audio.createBiquadFilter(), g = audio.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(520, t); o.frequency.linearRampToValueAtTime(880, t + 0.22); o.frequency.exponentialRampToValueAtTime(430, t + 0.8);
+  f.type = 'bandpass'; f.Q.value = 3;
+  f.frequency.setValueAtTime(900, t); f.frequency.linearRampToValueAtTime(2200, t + 0.25); f.frequency.linearRampToValueAtTime(1100, t + 0.8);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.08); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+  o.connect(f).connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.9);
+}
 
 // ----- cena -----
 const canvas = document.getElementById('cena');
@@ -83,8 +115,7 @@ const elHora = document.getElementById('hora');
 const elData = document.getElementById('data');
 const elStatus = document.getElementById('status');
 const fmtData = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
-let lastSkyDraw = -1e9, lastSecond = -1, lastStatus = '';
-const pad = (n) => String(n).padStart(2, '0');
+
 
 function applyEnvironment(utc, brt, tSec) {
   const s = solar(utc);
@@ -137,7 +168,16 @@ function frame() {
   const tSec = utc / 1000 % 100000;
 
   const s = applyEnvironment(utc, brt, tSec);
-  const st = catState(brt);
+  const isHungry = utc >= food.fedUntil;
+  const off = brt - utc;
+  const st = catState(brt, {
+    hungrySince: isHungry ? food.fedUntil + off : null,
+    feastAt: food.feastAt != null ? food.feastAt + off : null,
+    hungryFrom: food.hungryFrom != null ? food.hungryFrom + off : null,
+  });
+  room.setFood(!isHungry);
+  if (st.meow > 0.05 && lastMeow <= 0.05) playMeow();
+  lastMeow = st.meow;
   cat.update(dt, tSec, st);
   room.yarn.position.set(st.ball.x, 0.09, st.ball.z);
   room.yarn.rotation.z = -st.ball.roll;
@@ -152,6 +192,9 @@ function frame() {
     elData.textContent = fmtData.format(d);
     const txt = statusText(st, s.isDay);
     if (txt !== lastStatus) { lastStatus = txt; elStatus.textContent = txt; }
+    elPote.textContent = isHungry ? `Pote vazio há ${dur(utc - food.fedUntil)}` : `Pote cheio por mais ${dur(food.fedUntil - utc)}`;
+    elAlimentar.textContent = isHungry ? 'Dar comida' : 'Dar mais comida';
+    document.body.classList.toggle('fome', isHungry);
   }
 
   mouse.sx += (mouse.x - mouse.sx) * 0.05; mouse.sy += (mouse.y - mouse.sy) * 0.05;

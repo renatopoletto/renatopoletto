@@ -106,6 +106,7 @@ export function createCat() {
   }
   const chin = mesh(sph, mCream, head, 0, -0.085, 0.105); chin.scale.set(0.045, 0.03, 0.04);
   const nose = mesh(sph, mPink, head, 0, -0.03, 0.165); nose.scale.set(0.02, 0.014, 0.014);
+  const mouth = mesh(sph, std({ color: '#7a2630' }), head, 0, -0.068, 0.15); mouth.castShadow = false;
   const eyes = [];
   for (const s of [-1, 1]) {
     const eye = new THREE.Group(); eye.position.set(s * 0.075, 0.018, 0.133);
@@ -162,6 +163,15 @@ export function createCat() {
     s.renderOrder = 5; zzz.push(s);
   }
 
+  // balão "miau!"
+  const mc = document.createElement('canvas'); mc.width = 256; mc.height = 96;
+  const mg = mc.getContext('2d');
+  mg.font = 'italic bold 60px Georgia, serif'; mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  mg.lineWidth = 9; mg.lineJoin = 'round'; mg.strokeStyle = '#3b2c22'; mg.strokeText('miau!', 128, 48);
+  mg.fillStyle = '#fff6e4'; mg.fillText('miau!', 128, 48);
+  const miau = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(mc), transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
+  miau.renderOrder = 6; zzz.push(miau);
+
   const cur = { ...BASE };
   let first = true, heading = 0, sleepAmt = 0;
   const headWorld = new THREE.Vector3();
@@ -205,6 +215,10 @@ export function createCat() {
       p.roll += 0.07 * st.wiggle * Math.sin(t * 15);
       p.fr += -1.25 * st.swipe; p.lenFR += 0.25 * st.swipe;
     }
+    const meow = st.meow || 0;
+    p.headPitch -= 0.5 * meow; p.eye = Math.min(p.eye, 1 - 0.75 * meow);
+    mouth.scale.set(0.024, 0.002 + 0.03 * meow, 0.014);
+    if (st.hungry) p.sway *= 3;
     // piscadas
     const blink = (t % 4.3) < 0.13 || ((t + 1.7) % 7.1) < 0.1;
     const eyeOpen = blink ? Math.min(p.eye, 0.08) : p.eye;
@@ -221,7 +235,7 @@ export function createCat() {
     const twitch = Math.max(0, Math.sin(t * 0.9 + 2) - 0.97) * 12;
     ears[0].rotation.x = -twitch; ears[1].rotation.x = -Math.max(0, Math.sin(t * 0.63) - 0.97) * 12;
 
-    const sway = Math.sin(t * 1.3) * 0.07 * p.sway;
+    const sway = Math.sin(t * (st.hungry ? 4.2 : 1.3)) * 0.07 * p.sway;
     for (let i = 0; i < tail.length; i++) {
       tail[i].rotation.x = i === 0 ? p.tailLift : p.tailCurl + (i > 5 ? 0.12 * p.sway * Math.sin(t * 2.1) : 0);
       tail[i].rotation.y = p.tailSide + sway * (i / 4);
@@ -236,6 +250,9 @@ export function createCat() {
 
     // Zzz
     head.getWorldPosition(headWorld);
+    miau.position.set(headWorld.x + 0.1, headWorld.y + 0.55 + 0.12 * meow, headWorld.z + 0.1);
+    miau.scale.set(0.62 * (0.7 + 0.3 * meow), 0.23 * (0.7 + 0.3 * meow), 1);
+    miau.material.opacity = Math.min(1, meow * 1.6);
     for (let i = 0; i < 3; i++) {
       const u = ((t * 0.28 + i / 3) % 1);
       const s = zzz[i];

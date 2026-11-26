@@ -59,29 +59,29 @@ function jump(from, to, u, out) {
   out.moving = true;
 }
 
-export function catState(brtMs) {
-  const seg = segmentAt(brtMs);
-  const N = spotOf(seg.info, seg.startMs);
-  const P = spotOf(seg.prev.info, seg.prev.startMs);
-  const e = (brtMs - seg.startMs) / 1000;
-  const out = {
+function blank(N, act, spot) {
+  return {
     x: N.p[0], y: N.p[1], z: N.p[2], heading: N.face, pose: 'stand', walkPhase: 0,
-    groundY: N.p[1], moving: false, act: seg.info.act, spot: seg.info.spot,
-    swipe: 0, wiggle: 0, run: false, ball: { x: BALL_HOME.x, z: BALL_HOME.z, roll: 0 },
+    groundY: N.p[1], moving: false, act, spot,
+    swipe: 0, wiggle: 0, run: false, meow: 0, hungry: false,
+    ball: { x: BALL_HOME.x, z: BALL_HOME.z, roll: 0 },
   };
+}
 
+// Leva o gato do lugar P ao lugar N. Devolve -1 enquanto está a caminho,
+// ou o tempo (s) desde a chegada.
+function travel(P, N, e, out) {
   const tDown = elevated(P) ? 0.9 : 0;
   const d = Math.hypot(N.a[0] - P.a[0], N.a[2] - P.a[2]);
   const tWalk = d / SPEED;
   const tUp = elevated(N) ? 0.95 : 0;
-
   if (e < tDown) {
     if (e < 0.35) {
       out.x = P.p[0]; out.y = P.p[1]; out.z = P.p[2]; out.groundY = P.p[1];
       out.heading = Math.atan2(P.a[0] - P.p[0], P.a[2] - P.p[2]);
       out.pose = 'crouch'; out.moving = true;
     } else jump(P.p, P.a, (e - 0.35) / 0.55, out);
-    return out;
+    return -1;
   }
   if (e < tDown + tWalk) {
     const u = (e - tDown) / tWalk;
@@ -89,7 +89,7 @@ export function catState(brtMs) {
     out.y = lerp(P.a[1], N.a[1], u); out.groundY = out.y;
     out.heading = Math.atan2(N.a[0] - P.a[0], N.a[2] - P.a[2]);
     out.pose = 'walk'; out.walkPhase = u * d * 9; out.moving = true;
-    return out;
+    return -1;
   }
   if (e < tDown + tWalk + tUp) {
     const t = e - tDown - tWalk;
@@ -98,20 +98,32 @@ export function catState(brtMs) {
       out.heading = Math.atan2(N.p[0] - N.a[0], N.p[2] - N.a[2]);
       out.pose = 'crouch'; out.wiggle = 1; out.moving = true;
     } else jump(N.a, N.p, (t - 0.35) / 0.6, out);
-    return out;
+    return -1;
   }
+  out.x = N.p[0]; out.y = N.p[1]; out.z = N.p[2]; out.groundY = N.p[1];
+  out.heading = N.face; out.pose = 'stand'; out.moving = false;
+  return e - tDown - tWalk - tUp;
+}
 
-  const te = e - tDown - tWalk - tUp;
+// Rotina normal. `from` = { ms, spot } quando o gato vem de fora da rotina.
+function routine(brtMs, from) {
+  const seg = segmentAt(brtMs);
+  const N = spotOf(seg.info, seg.startMs);
+  let P, t0;
+  if (from && seg.startMs <= from.ms) { P = from.spot; t0 = from.ms; }
+  else { P = spotOf(seg.prev.info, seg.prev.startMs); t0 = seg.startMs; }
+  const out = blank(N, seg.info.act, seg.info.spot);
+  const te = travel(P, N, (brtMs - t0) / 1000, out);
+  if (te < 0) return out;
   if (seg.info.act !== 'play') {
     out.pose = POSE_FOR[seg.info.act] || 'sit';
-    out.te = te;
     return out;
   }
 
   // Brincadeira: ciclos de espreitar, dar a patada e correr atrás da bolinha.
   const T = 6;
   const seed = Math.floor(seg.startMs / 300000);
-  const arriveMs = seg.startMs + (tDown + tWalk + tUp) * 1000;
+  const arriveMs = brtMs - te * 1000;
   const n = Math.max(1, Math.floor((seg.endMs - arriveMs) / 1000 / T));
   const k = Math.floor(te / T);
   if (k >= n) {
@@ -145,10 +157,61 @@ export function catState(brtMs) {
   return out;
 }
 
+// Com fome: fareja o pote vazio, mia para quem está olhando e anda inquieta.
+const CAM_HEADING = 0.57; // de frente para a câmera
+const BEG = [[0.9, 0, 2.35], [-0.4, 0, 1.9], [1.7, 0, 1.6]];
+function meowAt(t) { const m = t % 2.8; return m < 0.9 ? Math.sin(Math.PI * m / 0.9) : 0; }
+function hungryState(brtMs, h0) {
+  const seg0 = segmentAt(h0);
+  const P = spotOf(seg0.info, seg0.startMs);
+  const A = FIXED.food;
+  const out = blank(A, 'hungry', 'food');
+  out.hungry = true;
+  const te = travel(P, A, (brtMs - h0) / 1000, out);
+  if (te < 0) return out;
+  const T = 36, k = Math.floor(te / T), u = te - k * T;
+  const b = BEG[Math.floor(hash(Math.floor(h0 / 1000), k) * BEG.length)];
+  const B = { p: b, a: b, face: CAM_HEADING };
+  if (u < 5) out.pose = 'eat';
+  else if (u < 11) { out.pose = 'sit'; out.heading = CAM_HEADING; out.meow = meowAt(u - 5); }
+  else if (u < 28) {
+    if (travel(A, B, u - 11, out) >= 0) { out.pose = 'sit'; out.meow = meowAt(u - 11); }
+  } else travel(B, A, u - 28, out);
+  return out;
+}
+
+const FEAST_EAT = 300e3, FEAST_END = 480e3;
+function feastState(brtMs, feastAt, h0) {
+  const hs = hungryState(feastAt, h0);
+  const from = [hs.x, 0, hs.z];
+  const e = (brtMs - feastAt) / 1000;
+  if (e < FEAST_EAT / 1000) {
+    const out = blank(FIXED.food, 'eat', 'food');
+    if (travel({ p: from, a: from }, FIXED.food, e, out) >= 0) out.pose = 'eat';
+    else out.run = true;
+    return out;
+  }
+  const out = blank(FIXED.rug, 'groom', 'rug');
+  if (travel(FIXED.food, FIXED.rug, e - FEAST_EAT / 1000, out) >= 0) out.pose = 'groom';
+  return out;
+}
+
+// food = { hungrySince, feastAt, hungryFrom } em ms de Brasília (ou null).
+export function catState(brtMs, food) {
+  if (food && food.hungrySince != null && brtMs >= food.hungrySince) return hungryState(brtMs, food.hungrySince);
+  if (food && food.feastAt != null) {
+    if (brtMs - food.feastAt < FEAST_END) return feastState(brtMs, food.feastAt, food.hungryFrom ?? food.feastAt);
+    return routine(brtMs, { ms: food.feastAt + FEAST_END, spot: FIXED.rug });
+  }
+  return routine(brtMs, null);
+}
+
 const WHERE = { sofa: 'no sofá', bed: 'na caminha', tree: 'no alto do arranhador', sill: 'na janela', rug: 'no tapete' };
 export function statusText(st, isDay) {
   if (st.pose === 'walk' && !st.run) return 'passeando pela sala';
   if (st.pose === 'jump') return 'dando um pulo';
+  if (st.act === 'hungry') return st.meow > 0 || st.pose === 'sit' ? 'miando de fome' : 'inquieta, rondando o pote vazio';
+  if (st.pose === 'walk' && st.run && st.act === 'eat') return 'correndo para o pote';
   switch (st.act) {
     case 'sleep': return 'dormindo ' + WHERE[st.spot];
     case 'loaf': return 'de pãozinho ' + WHERE[st.spot];
