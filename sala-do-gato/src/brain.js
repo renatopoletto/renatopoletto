@@ -161,9 +161,9 @@ function routine(brtMs, from) {
 const CAM_HEADING = 0.57; // de frente para a câmera
 const BEG = [[0.9, 0, 2.35], [-0.4, 0, 1.9], [1.7, 0, 1.6]];
 function meowAt(t) { const m = t % 2.8; return m < 0.9 ? Math.sin(Math.PI * m / 0.9) : 0; }
-function hungryState(brtMs, h0) {
-  const seg0 = segmentAt(h0);
-  const P = spotOf(seg0.info, seg0.startMs);
+function hungryState(brtMs, h0, start) {
+  let P = start;
+  if (!P) { const seg0 = segmentAt(h0); P = spotOf(seg0.info, seg0.startMs); }
   const A = FIXED.food;
   const out = blank(A, 'hungry', 'food');
   out.hungry = true;
@@ -198,7 +198,15 @@ function feastState(brtMs, feastAt, h0) {
 
 // food = { hungrySince, feastAt, hungryFrom } em ms de Brasília (ou null).
 export function catState(brtMs, food) {
-  if (food && food.hungrySince != null && brtMs >= food.hungrySince) return hungryState(brtMs, food.hungrySince);
+  if (food && food.hungrySince != null && brtMs >= food.hungrySince) {
+    // se a comida acabou no meio da refeição, a fome recomeça de onde a gata estava
+    let start = null;
+    if (food.feastAt != null && food.hungrySince - food.feastAt < FEAST_END) {
+      const f = feastState(food.hungrySince, food.feastAt, food.hungryFrom ?? food.feastAt);
+      start = { p: [f.x, 0, f.z], a: [f.x, 0, f.z] };
+    }
+    return hungryState(brtMs, food.hungrySince, start);
+  }
   if (food && food.feastAt != null) {
     if (brtMs - food.feastAt < FEAST_END) return feastState(brtMs, food.feastAt, food.hungryFrom ?? food.feastAt);
     return routine(brtMs, { ms: food.feastAt + FEAST_END, spot: FIXED.rug });

@@ -2,7 +2,7 @@
 // MODO DEMONSTRAÇÃO: fica guardado só no navegador de cada visitante e
 // nenhum pagamento é cobrado. Para valer para todo mundo, load() e feed()
 // precisam passar a falar com um servidor (que confirma o pagamento).
-export const PORTION_MS = 4 * 3600e3; // quanto tempo uma porção alimenta a gata
+export const PORTION_MS = 30e3; // uma porção alimenta a gata por 30 segundos
 const KEY = 'pipoca-comida-v1';
 
 export function load(now, persist) {

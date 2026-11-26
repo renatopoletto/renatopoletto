@@ -30,7 +30,7 @@ if (params.get('fome') === '0') food.fedUntil = baseUtc + 6 * 3600e3;
 const elPote = document.getElementById('pote');
 const elAlimentar = document.getElementById('alimentar');
 elAlimentar.addEventListener('click', () => { feed(food, nowUtc(), !testMode); lastSecond = -1; });
-const dur = (ms) => { const m = Math.max(1, Math.round(ms / 60e3)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad(m % 60)} min`; };
+const dur = (ms) => { if (ms < 60e3) return `${Math.max(0, Math.ceil(ms / 1000))} s`; const m = Math.floor(ms / 60e3); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad(m % 60)} min`; };
 
 // ----- som (miado sintetizado; só toca depois de ligar no botão) -----
 let audio = null, lastMeow = 0;
