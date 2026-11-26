@@ -1,0 +1,172 @@
+import * as THREE from '../vendor/three.module.min.js';
+import { toBrt, brtOffset, solar } from './time.js';
+import { catState, statusText } from './brain.js';
+import { createCat } from './cat.js';
+import { createRoom } from './room.js';
+import { createSky, skyColors } from './sky.js';
+
+// ----- relógio (parâmetros de teste: ?hora=21:30 e ?vel=600) -----
+const params = new URLSearchParams(location.search);
+const speed = Math.max(0, parseFloat(params.get('vel')) || 1);
+let baseUtc = Date.now();
+const hora = /^(\d{1,2})(?::(\d{2}))?$/.exec(params.get('hora') || '');
+if (hora) {
+  const off = brtOffset(baseUtc);
+  const dayStart = Math.floor((baseUtc + off) / 864e5) * 864e5;
+  baseUtc = dayStart + (+hora[1]) * 36e5 + (+(hora[2] || 0)) * 6e4 - off;
+}
+const foco = params.has('foco');
+const perf0 = performance.now();
+const nowUtc = () => baseUtc + (performance.now() - perf0) * speed;
+
+// ----- cena -----
+const canvas = document.getElementById('cena');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, stencil: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, 0.5, 80);
+const TARGET = new THREE.Vector3(-0.35, 1.55, -0.2);
+const CAM_DIR = new THREE.Vector3(6.6, 4.3, 10.2).normalize();
+let camDist = 14;
+
+const sky = createSky();
+const room = createRoom(scene, sky.texture);
+const cat = createCat();
+scene.add(cat.root, cat.shadow, ...cat.zzz);
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1);
+const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+fill.position.set(5, 7, 8);
+const sun = new THREE.DirectionalLight(0xffffff, 0);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02; sun.shadow.radius = 3;
+Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 40 });
+sun.target.position.set(0, 1, 0);
+scene.add(hemi, fill, sun, sun.target);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camDist = 14.2 * Math.max(1, 1.62 / camera.aspect);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+const mouse = { x: 0, y: 0, sx: 0, sy: 0 };
+window.addEventListener('pointermove', (e) => {
+  mouse.x = e.clientX / window.innerWidth * 2 - 1;
+  mouse.y = e.clientY / window.innerHeight * 2 - 1;
+});
+
+// ----- ambiente por horário -----
+const C = (h) => new THREE.Color(h);
+const lerp = (a, b, t) => a + (b - a) * t;
+const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const col = { a: new THREE.Color(), b: new THREE.Color() };
+const PAL = {
+  sunLow: C('#ff9648'), sunHigh: C('#fff0d8'), moon: C('#9fb8ff'),
+  hemiSkyDay: C('#eef4ff'), hemiSkyDusk: C('#ffc9a0'), hemiSkyNight: C('#34427e'),
+  hemiGndDay: C('#d8b48c'), hemiGndNight: C('#1c1e3a'),
+  fillDay: C('#fff3e0'), fillNight: C('#7f96e0'),
+};
+
+const elHora = document.getElementById('hora');
+const elData = document.getElementById('data');
+const elStatus = document.getElementById('status');
+const fmtData = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
+let lastSkyDraw = -1e9, lastSecond = -1, lastStatus = '';
+const pad = (n) => String(n).padStart(2, '0');
+
+function applyEnvironment(utc, brt, tSec) {
+  const s = solar(utc);
+  const hour = (brt % 864e5) / 36e5;
+  const day = sstep(-4, 8, s.alt);          // 0 noite .. 1 dia
+  const dusk = 1 - Math.min(1, Math.abs(s.alt - 1) / 9); // pico no nascer/pôr
+
+  // sol / lua
+  sun.position.set(s.dir[0] * 18, s.dir[1] * 18 + 1, s.dir[2] * 18);
+  if (s.isDay) {
+    sun.color.copy(PAL.sunLow).lerp(PAL.sunHigh, sstep(2, 24, s.alt));
+    sun.intensity = 4.2 * sstep(-0.8, 10, s.alt);
+  } else {
+    sun.color.copy(PAL.moon);
+    sun.intensity = 0.75 * sstep(-5, -13, s.alt) * Math.sin(Math.PI * Math.min(1, Math.max(0, s.p)) * 0.9 + 0.15);
+  }
+  col.a.copy(PAL.hemiSkyNight).lerp(PAL.hemiSkyDay, day).lerp(PAL.hemiSkyDusk, dusk * 0.6);
+  hemi.color.copy(col.a);
+  hemi.groundColor.copy(PAL.hemiGndNight).lerp(PAL.hemiGndDay, day);
+  hemi.intensity = lerp(0.62, 1.55, day);
+  fill.color.copy(PAL.fillNight).lerp(PAL.fillDay, day);
+  fill.intensity = lerp(0.28, 0.75, day);
+
+  // abajures: do entardecer até 23:30 e do despertar até clarear
+  const dark = sstep(6, -3, s.alt);
+  const awake = Math.max(sstep(15, 16, hour) * (1 - sstep(23.3, 23.7, hour)), sstep(5.6, 6, hour) * (1 - sstep(11, 12, hour)));
+  const lamp = dark * awake;
+  room.setLights(lamp, dark, tSec);
+
+  // vista da janela (redesenha no máximo 5x por segundo)
+  const perfNow = performance.now();
+  if (perfNow - lastSkyDraw > (speed > 1 ? 80 : 200)) { sky.draw(s, hour, utc / 1000); lastSkyDraw = perfNow; }
+
+  // fundo da página acompanha o céu
+  const [top, bottom] = skyColors(s.alt);
+  const bg = (c, k) => `rgb(${c.map((v, i) => Math.round(lerp(v, [244, 232, 214][i], k))).join(',')})`;
+  const soft = lerp(0.12, 0.62, day);
+  document.body.style.background = `linear-gradient(${bg(top, soft)}, ${bg(bottom, soft + 0.1)})`;
+  document.body.classList.toggle('noite', day < 0.5);
+  return s;
+}
+
+let prev = performance.now();
+function frame() {
+  const perfNow = performance.now();
+  const dt = Math.min(0.1, (perfNow - prev) / 1000) * Math.min(speed || 1, 4);
+  prev = perfNow;
+  const utc = nowUtc();
+  const brt = toBrt(utc);
+  const tSec = utc / 1000 % 100000;
+
+  const s = applyEnvironment(utc, brt, tSec);
+  const st = catState(brt);
+  cat.update(dt, tSec, st);
+  room.yarn.position.set(st.ball.x, 0.09, st.ball.z);
+  room.yarn.rotation.z = -st.ball.roll;
+
+  const sec = Math.floor(brt / 1000);
+  if (sec !== lastSecond) {
+    lastSecond = sec;
+    const d = new Date(brt);
+    const h = d.getUTCHours(), m = d.getUTCMinutes(), ss = d.getUTCSeconds();
+    room.setClock(h, m, ss);
+    elHora.textContent = `${pad(h)}:${pad(m)}:${pad(ss)}`;
+    elData.textContent = fmtData.format(d);
+    const txt = statusText(st, s.isDay);
+    if (txt !== lastStatus) { lastStatus = txt; elStatus.textContent = txt; }
+  }
+
+  mouse.sx += (mouse.x - mouse.sx) * 0.05; mouse.sy += (mouse.y - mouse.sy) * 0.05;
+  const yaw = -mouse.sx * 0.07, lift = mouse.sy * 0.035;
+  const dir = CAM_DIR.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  dir.y += lift; dir.normalize();
+  if (foco) { // modo de teste: câmera próxima da gata
+    const c = new THREE.Vector3(st.x, st.y + 0.4, st.z);
+    camera.position.copy(c).addScaledVector(dir, 4.2); camera.lookAt(c);
+  } else {
+    camera.position.copy(TARGET).addScaledVector(dir, camDist);
+    camera.lookAt(TARGET);
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);

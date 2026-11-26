@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A sala da Pipoca</title>
+<meta name="description" content="Uma sala aconchegante e uma gata vivendo a vida dela, 24 horas por dia, no horário de Brasília.">
+<style>
+  :root { --tinta: #3b2c22; --papel: rgba(255, 249, 238, 0.78); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  body {
+    background: #f4e8d6;
+    color: var(--tinta);
+    font-family: ui-rounded, "Segoe UI", system-ui, -apple-system, sans-serif;
+    transition: color 1.5s;
+  }
+  body.noite { --tinta: #f3ead9; --papel: rgba(24, 26, 52, 0.62); }
+  #cena { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  header {
+    position: fixed; top: 20px; left: 24px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 20px; font-style: italic; letter-spacing: 0.01em; opacity: 0.85;
+  }
+  #painel {
+    position: fixed; left: 24px; bottom: 24px;
+    padding: 14px 18px 15px; border-radius: 16px;
+    background: var(--papel);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    max-width: calc(100vw - 48px);
+    transition: background 1.5s;
+  }
+  #hora { font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+  #local { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.65; margin-bottom: 6px; }
+  #data { font-size: 13px; opacity: 0.75; margin-top: 5px; }
+  #linha { margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--tinta) 18%, transparent); font-size: 15px; }
+  #linha b { font-weight: 600; }
+  @media (max-width: 600px) {
+    header { top: 14px; left: 16px; font-size: 17px; }
+    #painel { left: 16px; right: 16px; bottom: 16px; }
+    #hora { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="cena" aria-label="Sala ilustrada com uma gata laranja"></canvas>
+<header>A sala da Pipoca</header>
+<section id="painel" aria-live="polite">
+  <div id="local">Horário de Brasília</div>
+  <div id="hora">--:--:--</div>
+  <div id="data"></div>
+  <div id="linha"><b>Pipoca</b> está <span id="status">…</span></div>
+</section>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
