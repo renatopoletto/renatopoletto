@@ -4,7 +4,9 @@ import { catState, statusText } from './brain.js';
 import { createCat } from './cat.js';
 import { createRoom } from './room.js';
 import { createSky, skyColors } from './sky.js';
-import { load, feed } from './store.js';
+import { load, feed, createQueue, enqueue, canRun } from './store.js';
+import { DEFS, ORDER, envState } from './commands.js';
+import { createSound } from './sound.js';
 import { createAtmos } from './atmos.js';
 import { EffectComposer } from '../vendor/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from '../vendor/jsm/postprocessing/RenderPass.js';
@@ -36,24 +38,15 @@ if (params.get('fome') === '0') food.fedUntil = baseUtc + 6 * 3600e3;
 const elAlimentar = document.getElementById('alimentar');
 elAlimentar.addEventListener('click', () => { feed(food, nowUtc(), !testMode); lastSecond = -1; });
 
-// ----- som (miado sintetizado; só toca depois de ligar no botão) -----
-let audio = null, lastMeow = 0;
+// ----- som (sintetizado; só toca depois de ligar no botão) -----
+const sound = createSound();
+let lastMeow = 0, lastBird = false, lastChirp = 0;
 const elSom = document.getElementById('som');
 elSom.addEventListener('click', () => {
-  if (audio) { audio.close(); audio = null; } else audio = new (window.AudioContext || window.webkitAudioContext)();
-  elSom.textContent = audio ? 'Som ligado' : 'Som desligado';
-  elSom.setAttribute('aria-pressed', audio ? 'true' : 'false');
+  if (sound.enabled()) sound.disable(); else sound.enable();
+  elSom.textContent = sound.enabled() ? 'Som ligado' : 'Som desligado';
+  elSom.setAttribute('aria-pressed', sound.enabled() ? 'true' : 'false');
 });
-function playMeow() {
-  if (!audio) return;
-  const t = audio.currentTime, o = audio.createOscillator(), f = audio.createBiquadFilter(), g = audio.createGain();
-  o.type = 'sawtooth';
-  o.frequency.setValueAtTime(520, t); o.frequency.linearRampToValueAtTime(880, t + 0.22); o.frequency.exponentialRampToValueAtTime(430, t + 0.8);
-  f.type = 'bandpass'; f.Q.value = 3;
-  f.frequency.setValueAtTime(900, t); f.frequency.linearRampToValueAtTime(2200, t + 0.25); f.frequency.linearRampToValueAtTime(1100, t + 0.8);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.08); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
-  o.connect(f).connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.9);
-}
 
 // ----- cena -----
 const canvas = document.getElementById('cena');
@@ -72,7 +65,7 @@ const CAM_DIR = new THREE.Vector3(6.6, 4.3, 10.2).normalize();
 let camDist = 14;
 
 const sky = createSky();
-const room = createRoom(scene, sky.texture);
+const room = createRoom(scene, sky.texture, sky.glass);
 const cat = createCat();
 scene.add(cat.root, cat.shadow, ...cat.zzz);
 const atmos = createAtmos(scene);
@@ -136,6 +129,56 @@ window.addEventListener('pointermove', (e) => {
   mouse.y = e.clientY / window.innerHeight * 2 - 1;
 });
 
+// ----- comandos do internauta -----
+const queue = createQueue();
+let lastSt = null, lampNow = 0;
+const elMenu = document.getElementById('menu');
+const elBrincar = document.getElementById('brincar');
+const btns = {};
+for (const id of ORDER) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = id; b.textContent = DEFS[id].label;
+  elMenu.appendChild(b); btns[id] = b;
+}
+function ctxNow(utc) {
+  const sl = lastSt && (lastSt.pose === 'sleep' || lastSt.pose === 'loaf');
+  return { hungry: utc >= food.fedUntil, fedUntil: food.fedUntil, sleeping: !!sl, lampOn: lampNow > 0.5 };
+}
+function refreshMenu(utc) {
+  const c = ctxNow(utc);
+  for (const id of ORDER) btns[id].disabled = !canRun(queue, id, utc, c);
+  btns.luz.textContent = lampNow > 0.5 ? 'apagar as luzes' : 'acender as luzes';
+}
+function run(id) {
+  const utc = nowUtc();
+  if (enqueue(queue, id, utc, ctxNow(utc))) { refreshMenu(utc); lastSecond = -1; }
+}
+function toggleMenu(open) {
+  elMenu.hidden = !open; elBrincar.setAttribute('aria-expanded', String(open));
+  document.body.classList.toggle('menu-aberto', open);
+  if (open) refreshMenu(nowUtc());
+}
+elBrincar.addEventListener('click', (ev) => { ev.stopPropagation(); toggleMenu(elMenu.hidden); });
+elMenu.addEventListener('click', (ev) => { const b = ev.target.closest('button[data-id]'); if (b && !b.disabled) run(b.dataset.id); });
+document.addEventListener('click', (ev) => { if (!elMenu.hidden && !ev.target.closest('#acoes')) toggleMenu(false); });
+// tocar na gata faz carinho
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+canvas.addEventListener('pointerdown', (e) => {
+  ndc.set(e.clientX / window.innerWidth * 2 - 1, -(e.clientY / window.innerHeight * 2 - 1));
+  ray.setFromCamera(ndc, camera);
+  if (ray.intersectObject(cat.root, true).length) run('carinho');
+});
+// cópia dos comandos em horário de Brasília (guarda os caches de cálculo)
+const brtCopies = new Map();
+function cmdsForBrain(off) {
+  return queue.cmds.map((c) => {
+    let b = brtCopies.get(c.id);
+    if (!b) { b = { id: c.id, type: c.type, dur: c.dur, was: c.was }; brtCopies.set(c.id, b); }
+    b.start = c.start + off; b.catEnd = c.catEnd == null ? null : c.catEnd + off;
+    return b;
+  });
+}
+
 // ----- ambiente por horário -----
 const C = (h) => new THREE.Color(h);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -154,7 +197,7 @@ const elStatus = document.getElementById('status');
 const fmtData = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
 
 
-function applyEnvironment(utc, brt, tSec) {
+function applyEnvironment(utc, brt, tSec, env) {
   const s = solar(utc);
   const hour = (brt % 864e5) / 36e5;
   const day = sstep(-4, 8, s.alt);          // 0 noite .. 1 dia
@@ -169,22 +212,25 @@ function applyEnvironment(utc, brt, tSec) {
     sun.color.copy(PAL.moon);
     sun.intensity = 0.75 * sstep(-5, -13, s.alt) * Math.sin(Math.PI * Math.min(1, Math.max(0, s.p)) * 0.9 + 0.15);
   }
+  sun.intensity *= 1 - 0.8 * env.rain;
   col.a.copy(PAL.hemiSkyNight).lerp(PAL.hemiSkyDay, day).lerp(PAL.hemiSkyDusk, dusk * 0.6);
   hemi.color.copy(col.a);
   hemi.groundColor.copy(PAL.hemiGndNight).lerp(PAL.hemiGndDay, day);
-  hemi.intensity = lerp(0.62, 1.55, day);
+  hemi.intensity = lerp(0.62, 1.55, day) * (1 - 0.3 * env.rain);
   fill.color.copy(PAL.fillNight).lerp(PAL.fillDay, day);
   fill.intensity = lerp(0.28, 0.75, day);
 
   // abajures: do entardecer até 23:30 e do despertar até clarear
-  const dark = sstep(6, -3, s.alt);
+  const dark = Math.max(sstep(6, -3, s.alt), 0.65 * env.rain);
   const awake = Math.max(sstep(15, 16, hour) * (1 - sstep(23.3, 23.7, hour)), sstep(5.6, 6, hour) * (1 - sstep(11, 12, hour)));
-  const lamp = dark * awake;
-  room.setLights(lamp, dark, tSec);
+  lampNow = dark * awake;
+  // comando "luzes": inverte o estado dos abajures e do pisca-pisca por um tempo
+  const tgt = env.luzWas ? 0 : 1;
+  room.setLights(lerp(lampNow, tgt, env.luz), lerp(dark, tgt, env.luz), tSec);
 
   // vista da janela (redesenha no máximo 5x por segundo)
   const perfNow = performance.now();
-  if (perfNow - lastSkyDraw > (speed > 1 ? 80 : 200)) { sky.draw(s, hour, utc / 1000); lastSkyDraw = perfNow; }
+  if (perfNow - lastSkyDraw > (env.rain > 0.02 ? 50 : speed > 1 ? 80 : 200)) { sky.draw(s, hour, utc / 1000, env.rain); lastSkyDraw = perfNow; }
 
   // fundo da página acompanha o céu
   const [top, bottom] = skyColors(s.alt);
@@ -215,17 +261,24 @@ function frame() {
   const brt = toBrt(utc);
   const tSec = utc / 1000 % 100000;
 
-  const s = applyEnvironment(utc, brt, tSec);
+  const env = envState(queue.cmds, utc);
+  const s = applyEnvironment(utc, brt, tSec, env);
   const isHungry = utc >= food.fedUntil;
   const off = brt - utc;
   const st = catState(brt, {
     hungrySince: isHungry ? food.fedUntil + off : null,
     feastAt: food.feastAt != null ? food.feastAt + off : null,
     hungryFrom: food.hungryFrom != null ? food.hungryFrom + off : null,
-  });
+  }, cmdsForBrain(off));
+  lastSt = st;
   room.setFood(!isHungry);
-  if (st.meow > 0.05 && lastMeow <= 0.05) playMeow();
+  room.setFx(st.fx, tSec, dt, env);
+  if (st.meow > 0.05 && lastMeow <= 0.05) sound.meow();
   lastMeow = st.meow;
+  const bird = st.fx.bird;
+  if ((bird && !lastBird) || (bird && !bird.flying && bird.peck > 0.95 && perfNow - lastChirp > 2500)) { sound.chirp(); lastChirp = perfNow; }
+  lastBird = !!bird;
+  sound.setLoops({ rain: env.rain > 0.05, music: env.music > 0.05, purr: (st.purr || 0) > 0.25 });
   cat.update(dt, tSec, st);
   room.yarn.position.set(st.ball.x, 0.09, st.ball.z);
   room.yarn.rotation.z = -st.ball.roll;
@@ -240,6 +293,7 @@ function frame() {
     elData.textContent = fmtData.format(d);
     const txt = statusText(st, s.isDay);
     if (txt !== lastStatus) { lastStatus = txt; elStatus.textContent = txt; }
+    if (!elMenu.hidden) refreshMenu(utc);
   }
 
   mouse.sx += (mouse.x - mouse.sx) * 0.05; mouse.sy += (mouse.y - mouse.sy) * 0.05;
@@ -261,3 +315,6 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+if (params.has('dbg')) window.__pipoca = { queue, ctxNow, run, get st() { return lastSt; } };
+// parâmetro de teste: ?cmd=laser dispara um comando logo ao carregar
+if (params.get('cmd')) setTimeout(() => run(params.get('cmd')), +params.get('cmdt') || 600);

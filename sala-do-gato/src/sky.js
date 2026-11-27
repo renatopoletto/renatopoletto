@@ -50,13 +50,44 @@ export function createSky() {
   }
   const trees = Array.from({ length: 16 }, () => ({ x: r() * W, s: 26 + r() * 30 }));
 
-  function draw(sun, hour, tSec) {
-    const [top, bottom, cloudCol] = skyColors(sun.alt);
+  // chuva: riscos no céu e gotas escorrendo no vidro
+  const rainDrops = Array.from({ length: 170 }, () => ({ x: r() * (W + 200), y: r() * H, len: 14 + r() * 22, v: 520 + r() * 380 }));
+  const gc = document.createElement('canvas'); gc.width = 512; gc.height = 256;
+  const gg = gc.getContext('2d');
+  const glassTex = new THREE.CanvasTexture(gc);
+  glassTex.colorSpace = THREE.SRGBColorSpace;
+  const beads = Array.from({ length: 38 }, () => ({ x: r() * 512, y0: r() * 256, rad: 2 + r() * 4, v: 4 + r() * 16, w: r() * 6 }));
+  let glassClear = false;
+
+  function drawGlass(rain, tSec) {
+    if (rain < 0.02) { if (!glassClear) { gg.clearRect(0, 0, 512, 256); glassTex.needsUpdate = true; glassClear = true; } return; }
+    glassClear = false;
+    gg.clearRect(0, 0, 512, 256);
+    for (const b of beads) {
+      const y = (b.y0 + tSec * b.v) % 290 - 20, x = b.x + Math.sin(tSec * 0.5 + b.w) * 1.5;
+      gg.fillStyle = `rgba(215,235,255,${0.5 * rain})`;
+      gg.beginPath(); gg.ellipse(x, y, b.rad * 0.8, b.rad * 1.2, 0, 0, 6.3); gg.fill();
+      gg.fillStyle = `rgba(255,255,255,${0.7 * rain})`;
+      gg.beginPath(); gg.arc(x - b.rad * 0.25, y - b.rad * 0.4, b.rad * 0.3, 0, 6.3); gg.fill();
+      gg.strokeStyle = `rgba(215,235,255,${0.16 * rain})`; gg.lineWidth = b.rad * 0.5;
+      gg.beginPath(); gg.moveTo(x, y - b.rad * 6); gg.lineTo(x, y); gg.stroke();
+    }
+    glassTex.needsUpdate = true;
+  }
+
+  function draw(sun, hour, tSec, rain = 0) {
     const night = Math.max(0, Math.min(1, (-sun.alt - 2) / 8));
+    const [top0, bottom0, cloud0] = skyColors(sun.alt);
+    const rk = rain * 0.8;
+    const top = mix(top0, mix([104, 116, 134], [26, 32, 50], night), rk);
+    const bottom = mix(bottom0, mix([150, 160, 174], [40, 46, 64], night), rk);
+    const cloudCol = mix(cloud0, mix([150, 158, 170], [60, 66, 84], night), rk);
+    drawGlass(rain, tSec);
     const grad = g.createLinearGradient(0, 0, 0, H * 0.82);
     grad.addColorStop(0, css(top)); grad.addColorStop(1, css(bottom));
     g.fillStyle = grad; g.fillRect(0, 0, W, H);
 
+    g.globalAlpha = 1 - 0.9 * rain;
     if (night > 0) {
       for (const s of stars) {
         g.fillStyle = `rgba(255,250,235,${night * (0.55 + 0.45 * Math.sin(tSec * 1.5 + s.f))})`;
@@ -83,6 +114,7 @@ export function createSky() {
       g.fillStyle = css(mix(top, bottom, by / (H * 0.82)), night);
       g.beginPath(); g.arc(bx + 11, by - 5, 21, 0, 6.3); g.fill();
     }
+    g.globalAlpha = 1;
     // nuvens
     for (const c of clouds) {
       const x = ((c.x + tSec * c.v) % (W + 300)) - 150;
@@ -90,6 +122,11 @@ export function createSky() {
       for (const [dx, dy, k] of [[0, 0, 1], [0.8, 0.12, 0.75], [-0.8, 0.15, 0.7], [0.3, -0.35, 0.7], [-0.35, -0.25, 0.6]]) {
         g.beginPath(); g.ellipse(x + dx * c.s, c.y + dy * c.s, c.s * k, c.s * k * 0.55, 0, 0, 6.3); g.fill();
       }
+    }
+    if (rain > 0.02) { // camada de nuvens carregadas
+      const cg = g.createLinearGradient(0, 0, 0, H * 0.7);
+      cg.addColorStop(0, css(mix([92, 100, 116], [24, 28, 44], night), 0.92 * rain)); cg.addColorStop(1, css(mix([140, 148, 160], [44, 50, 68], night), 0));
+      g.fillStyle = cg; g.fillRect(0, 0, W, H * 0.7);
     }
     // cidade
     const base = H * 0.86;
@@ -113,8 +150,18 @@ export function createSky() {
     }
     g.fillStyle = css(mix([86, 140, 88], [12, 22, 30], night * 0.85));
     g.fillRect(0, base + 38, W, H);
+    if (rain > 0.02) {
+      g.fillStyle = css(mix([150, 160, 174], [40, 46, 64], night), 0.35 * rain); g.fillRect(0, H * 0.5, W, H * 0.5); // neblina da chuva
+      g.strokeStyle = `rgba(205,220,240,${0.45 * rain})`; g.lineWidth = 1.4;
+      g.beginPath();
+      for (const d of rainDrops) {
+        const y = (d.y + tSec * d.v) % (H + 40) - 20, x = ((d.x - y * 0.22) % (W + 200) + W + 200) % (W + 200) - 100;
+        g.moveTo(x, y); g.lineTo(x - d.len * 0.22, y + d.len);
+      }
+      g.stroke();
+    }
     texture.needsUpdate = true;
   }
 
-  return { texture, draw };
+  return { texture, glass: glassTex, draw };
 }

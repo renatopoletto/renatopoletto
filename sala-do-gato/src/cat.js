@@ -68,7 +68,11 @@ const POSES = {
   jump: { pitch: -0.3, fl: -1.0, fr: -1.0, hl: 0.9, hr: 0.9, headPitch: 0.2, tailLift: 0.3, tailCurl: 0.05, sway: 0 },
 };
 POSES.watch = { ...POSES.sit };
+POSES.rear = { bodyY: 0.5, pitch: -1.15, headPitch: 1.0, fl: -1.25, fr: -0.55, hl: -0.25, hr: -0.25, lenF: 1.1, lenFR: 1.1, lenH: 1.0, tailLift: 0.4, tailCurl: 0.05, sway: 1.4 };
+POSES.stretch = { bodyY: 0.36, pitch: 0.5, headPitch: 0.25, fl: -1.4, fr: -1.4, lenF: 1.05, lenFR: 1.05, hl: 0, hr: 0, tailLift: 1.3, tailCurl: 0.1, eye: 0.25 };
 POSES.groom = { ...POSES.sit, fr: -1.1, lenFR: 0.95, headPitch: 1.2, headYaw: -0.3, eye: 0.3 };
+POSES.purr = { ...POSES.sit, eye: 0.04, headPitch: 0.6, tailSide: 0.5, sway: 0.5 };
+POSES.listen = { ...POSES.sit };
 
 export function createCat() {
   const root = new THREE.Group();
@@ -184,6 +188,34 @@ export function createCat() {
   const miau = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(mc), transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
   miau.renderOrder = 6; zzz.push(miau);
 
+  // corações do carinho
+  const hc = document.createElement('canvas'); hc.width = hc.height = 64;
+  const hg = hc.getContext('2d');
+  hg.fillStyle = '#ff6f8a'; hg.strokeStyle = '#fff'; hg.lineWidth = 5;
+  hg.beginPath(); hg.moveTo(32, 54); hg.bezierCurveTo(4, 34, 10, 8, 32, 22); hg.bezierCurveTo(54, 8, 60, 34, 32, 54); hg.closePath(); hg.stroke(); hg.fill();
+  const heartTex = new THREE.CanvasTexture(hc);
+  const hearts = [];
+  for (let i = 0; i < 4; i++) {
+    const h = new THREE.Sprite(new THREE.SpriteMaterial({ map: heartTex, transparent: true, opacity: 0, depthWrite: false }));
+    h.renderOrder = 5; hearts.push(h); zzz.push(h);
+  }
+  // mão do carinho: luva simples com antebraço saindo para o lado da câmera
+  const hand = new THREE.Group(); hand.visible = false; hand.rotation.y = -(Math.PI - 0.57);
+  {
+    const skin = new THREE.MeshStandardMaterial({ color: '#f1c7a3', roughness: 0.8 });
+    const sleeve = new THREE.MeshStandardMaterial({ color: '#7fa6c9', roughness: 0.9 });
+    const add = (g, m, x, y, z, par) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; par.add(o); return o; };
+    add(sph, skin, 0, 0, 0, hand).scale.set(0.085, 0.032, 0.095);
+    for (let i = 0; i < 4; i++) { const f = add(sph, skin, 0.1 + (i === 1 || i === 2 ? 0.012 : 0), 0, (i - 1.5) * 0.032, hand); f.scale.set(0.045, 0.017, 0.019); }
+    add(sph, skin, 0.02, 0, -0.1, hand).scale.set(0.04, 0.02, 0.022);
+    const arm = new THREE.Group(); arm.rotation.z = -0.3; hand.add(arm);
+    const ag = new THREE.CapsuleGeometry(0.05, 0.7, 4, 10); ag.rotateZ(Math.PI / 2);
+    add(ag, skin, -0.4, 0, 0, arm);
+    const sg = new THREE.CylinderGeometry(0.062, 0.062, 0.55, 14); sg.rotateZ(Math.PI / 2);
+    add(sg, sleeve, -0.95, 0, 0, arm);
+  }
+  zzz.push(hand);
+
   // esferas do corpo: usadas para apoiar a gata exatamente na superfície
   const spheres = [];
   inner.traverse((m) => { if (m.isMesh && m.geometry.type === 'SphereGeometry') spheres.push(m); });
@@ -233,9 +265,20 @@ export function createCat() {
       p.roll += 0.07 * st.wiggle * Math.sin(t * 15);
       p.fr += -1.25 * st.swipe; p.lenFR += 0.25 * st.swipe;
     }
-    const meow = st.meow || 0;
-    p.headPitch -= 0.5 * meow; p.eye = Math.min(p.eye, 1 - 0.75 * meow);
-    mouth.scale.set(0.024, 0.002 + 0.03 * meow, 0.014);
+    if (st.pose === 'rear') {
+      p.fl += -0.55 * st.swipe; p.fr += 0.75 * st.swipe * Math.sin(t * 14);
+      p.headPitch += 0.08 * Math.sin(t * 3);
+    } else if (st.pose === 'purr') {
+      p.roll += 0.012 * Math.sin(t * 48) * (0.3 + st.purr);
+      p.headPitch += 0.07 * st.petting * Math.sin(t * 5);
+      p.headYaw -= 0.25 * st.petting;
+    } else if (st.pose === 'listen') {
+      p.headPitch += 0.07 * Math.sin(t * 3.3); p.tailSide += 0.3 * Math.sin(t * 2.2); p.sway *= 2.5;
+    }
+    const meow = st.meow || 0, yawn = st.yawn || 0;
+    const mouthOpen = Math.max(meow, yawn * 1.3);
+    p.headPitch -= 0.5 * meow + 0.55 * yawn; p.eye = Math.min(p.eye, 1 - 0.75 * meow - 0.8 * yawn);
+    mouth.scale.set(0.024, 0.002 + 0.03 * mouthOpen, 0.014);
     if (st.hungry) p.sway *= 3;
     // piscadas
     const blink = (t % 4.3) < 0.13 || ((t + 1.7) % 7.1) < 0.1;
@@ -286,6 +329,20 @@ export function createCat() {
 
     // Zzz
     head.getWorldPosition(headWorld);
+    // carinho: mão acariciando e corações subindo
+    const pet = st.petting || 0, pur = st.purr || 0;
+    hand.visible = pet > 0.02;
+    if (hand.visible) {
+      const pat = Math.sin(t * 6.5);
+      hand.position.set(headWorld.x + 0.05 * Math.sin(t * 3.2), headWorld.y + 0.17 + 0.05 * pat + (1 - pet) * 0.25, headWorld.z + 0.03);
+    }
+    for (let i = 0; i < hearts.length; i++) {
+      const u = ((t * 0.35 + i / hearts.length) % 1);
+      const h = hearts[i];
+      h.position.set(headWorld.x - 0.1 + 0.2 * Math.sin(i * 2.3 + u * 4), headWorld.y + 0.3 + u * 0.7, headWorld.z + 0.08);
+      h.scale.setScalar(0.09 + 0.08 * Math.sin(u * Math.PI));
+      h.material.opacity = pur * Math.sin(u * Math.PI);
+    }
     miau.position.set(headWorld.x + 0.1, headWorld.y + 0.55 + 0.12 * meow, headWorld.z + 0.1);
     miau.scale.set(0.62 * (0.7 + 0.3 * meow), 0.23 * (0.7 + 0.3 * meow), 1);
     miau.material.opacity = Math.min(1, meow * 1.6);

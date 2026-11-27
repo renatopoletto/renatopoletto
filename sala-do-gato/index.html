@@ -42,17 +42,30 @@
     border-radius: 999px; padding: 7px 14px;
   }
   button:focus-visible { outline: 2px solid var(--tinta); outline-offset: 2px; }
-  #alimentar {
+  #acoes {
     position: fixed; right: max(20px, env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    background: var(--papel); border-color: transparent; font-weight: 500; font-size: 13px; opacity: 0.8;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   }
-  #alimentar:hover, #alimentar:active { opacity: 1; }
+  #acoes { z-index: 5; }
+  #painel { z-index: 1; }
+  #botoes { display: flex; gap: 8px; }
+  #acoes button { background: var(--papel); border-color: transparent; font-weight: 500; font-size: 13px; opacity: 0.85; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #menu {
+    display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; padding: 10px;
+    width: min(360px, calc(100vw - 32px)); border-radius: 16px;
+    background: var(--papel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  #menu[hidden] { display: none; }
+  #menu button { font-size: 12.5px; padding: 6px 11px; background: transparent; border: 1.5px solid color-mix(in srgb, var(--tinta) 28%, transparent); opacity: 1; }
+  #menu button:disabled { opacity: 0.35; cursor: default; }
+  #menu button:not(:disabled):hover, #menu button:not(:disabled):active { background: color-mix(in srgb, var(--tinta) 12%, transparent); }
+  #acoes button:hover, #acoes button:active { opacity: 1; }
   #som { position: fixed; top: 16px; right: 20px; background: var(--papel); border-color: transparent; font-weight: 500; font-size: 13px; }
   @media (max-width: 600px) {
     header { top: 14px; left: 16px; font-size: 17px; }
     #painel { left: 16px; right: 16px; bottom: 64px; }
-    #alimentar { right: 16px; bottom: 16px; }
+    #acoes { right: 16px; bottom: 16px; }
+    body.menu-aberto #painel { visibility: hidden; }
     #hora { font-size: 28px; }
   }
 </style>
@@ -61,7 +74,10 @@
 <canvas id="cena" aria-label="Sala ilustrada com uma gata laranja"></canvas>
 <header>A sala da Pipoca</header>
 <button id="som" type="button" aria-pressed="false">Som desligado</button>
-<button id="alimentar" type="button">alimentar o gato</button>
+<div id="acoes">
+  <div id="menu" hidden></div>
+  <div id="botoes"><button id="brincar" type="button" aria-expanded="false">brincar</button><button id="alimentar" type="button">alimentar o gato</button></div>
+</div>
 <section id="painel" aria-live="polite">
   <div id="local">Horário de Brasília</div>
   <div id="hora">--:--:--</div>

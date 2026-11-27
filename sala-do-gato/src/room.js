@@ -36,7 +36,7 @@ function rboxGeo(w, h, d, r) {
   return g;
 }
 
-export function createRoom(scene, skyTexture) {
+export function createRoom(scene, skyTexture, glassTexture) {
   const room = new THREE.Group();
   scene.add(room);
   const R = rng(42);
@@ -131,6 +131,8 @@ export function createRoom(scene, skyTexture) {
   mask.position.set(WX, WY, -3.1); mask.renderOrder = 1; room.add(mask);
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(WW, WH), new THREE.MeshStandardMaterial({ color: '#dff1ff', transparent: true, opacity: 0.1, roughness: 0.05 }));
   glass.position.set(WX, WY, -3.08); glass.renderOrder = 4; room.add(glass);
+  const drops = new THREE.Mesh(new THREE.PlaneGeometry(WW, WH), new THREE.MeshBasicMaterial({ map: glassTexture, transparent: true, depthWrite: false }));
+  drops.position.set(WX, WY, -3.07); drops.renderOrder = 5; room.add(drops);
   // caixilhos
   box(WW + 0.24, 0.12, 0.3, TRIM, WX, WY + WH / 2 + 0.06, -3.05);
   box(0.12, WH, 0.3, TRIM, WX - WW / 2 - 0.06, WY, -3.05);
@@ -287,9 +289,15 @@ export function createRoom(scene, skyTexture) {
   rbox(0.6, 0.07, 0.6, 0.03, '#d9c7a8', 2.92, 0.82, -1.02);
   rbox(0.98, 0.09, 0.98, 0.04, '#d9c7a8', 3.2, 1.545, -1.3);
   rbox(0.9, 0.03, 0.9, 0.012, '#c96f4a', 3.2, 1.6, -1.3);
-  // brinquedo pendurado
-  cyl(0.004, 0.004, 0.42, '#6b4a33', 2.68, 1.3, -1.45, room, 4);
-  const dangle = ball(0.055, '#d99a3d', 2.68, 1.07, -1.45);
+  // brinquedo de pena pendurado sob o arranhador (balança quando a gata bate nele)
+  cyl(0.012, 0.012, 0.46, '#8a6a4a', 2.53, 1.49, -1.3, room, 6).rotation.z = Math.PI / 2;
+  const pend = new THREE.Group(); pend.position.set(2.3, 1.48, -1.3); room.add(pend);
+  cyl(0.004, 0.004, 0.8, '#6b4a33', 0, -0.4, 0, pend, 4).castShadow = false;
+  ball(0.05, '#d99a3d', 0, -0.82, 0, pend);
+  for (const [c, rz, ry] of [['#e8648c', 0.55, 0], ['#5bb5a6', -0.55, 0.5], ['#f0c24a', 0.1, 1.2], ['#e8648c', -0.2, 2.2]]) {
+    const f = add(new THREE.ConeGeometry(0.022, 0.2, 5), mat(c), 0, -0.93, 0, pend);
+    f.rotation.set(0, ry, rz); f.scale.set(1, 1, 0.45); f.castShadow = false;
+  }
 
   // ---------- potes de ração e água ----------
   rbox(0.62, 0.015, 1.05, 0.006, '#5c7a5e', 3.35, 0.012, 1.18).castShadow = false;
@@ -297,7 +305,7 @@ export function createRoom(scene, skyTexture) {
     cyl(0.17, 0.14, 0.09, '#f3ede1', 3.35, 0.06, z);
     return cyl(0.14, 0.14, 0.012, fill, 3.35, 0.103, z);
   };
-  const kibble = bowl(0.9, '#8a5a36'); bowl(1.45, mat('#7fc0df', { roughness: 0.1 }));
+  const kibble = bowl(0.9, '#8a5a36'); const water = bowl(1.45, mat('#7fc0df', { roughness: 0.1 }));
 
   // ---------- caminha ----------
   blob(-1.6, 2.15, 1.6, 1.6);
@@ -384,6 +392,135 @@ export function createRoom(scene, skyTexture) {
   const fairyLight = new THREE.PointLight('#ffc98a', 0, 9, 1.6);
   fairyLight.position.set(-1.5, 3.5, -1.2); room.add(fairyLight);
 
+  // ---------- caixa de papelão (a gata entra quando o internauta pede) ----------
+  const cardTex = canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = '#c99d66'; g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 5) { g.fillStyle = y % 10 ? 'rgba(120,80,40,0.10)' : 'rgba(255,230,190,0.12)'; g.fillRect(0, y, w, 2); }
+    const rr = rng(5); for (let i = 0; i < 200; i++) { g.fillStyle = 'rgba(90,60,30,0.08)'; g.fillRect(rr() * w, rr() * h, 2, 1); }
+  });
+  const card = mat('#ffffff', { map: cardTex, roughness: 0.95 });
+  const cardIn = mat('#b98a56', { roughness: 0.95 });
+  const boxG = new THREE.Group(); boxG.position.set(1.7, 0, 2.5); boxG.rotation.y = 0.12; room.add(boxG);
+  blob(1.7, 2.5, 1.2, 1.2);
+  box(0.74, 0.42, 0.025, card, 0, 0.21, 0.36, boxG);
+  box(0.74, 0.42, 0.025, card, 0, 0.21, -0.36, boxG);
+  box(0.025, 0.42, 0.74, card, 0.36, 0.21, 0, boxG);
+  box(0.025, 0.42, 0.74, card, -0.36, 0.21, 0, boxG);
+  box(0.72, 0.02, 0.72, cardIn, 0, 0.012, 0, boxG);
+  rbox(0.5, 0.04, 0.5, 0.02, fab('#e9c9a0'), 0, 0.035, 0, boxG).castShadow = false;
+  for (const [x, z, rx, rz] of [[0, 0.37, -0.55, 0], [0, -0.37, 0.55, 0], [0.37, 0, 0, 0.55], [-0.37, 0, 0, -0.55]]) {
+    const hinge = new THREE.Group(); hinge.position.set(x, 0.42, z); hinge.rotation.set(rx, 0, rz); boxG.add(hinge);
+    const w = rz ? 0.012 : 0.72, d = rz ? 0.72 : 0.012;
+    const fl = box(rz ? 0.2 : w, 0.012, rz ? d : 0.2, card, rz ? Math.sign(rz) * 0.1 : 0, 0, rz ? 0 : -Math.sign(rx) * 0.1, hinge);
+    fl.castShadow = true;
+  }
+  box(0.09, 0.3, 0.004, '#e3d3a8', 0.16, 0.25, 0.3735, boxG).castShadow = false;
+  box(0.26, 0.14, 0.004, '#f3ede1', -0.12, 0.2, 0.3735, boxG).castShadow = false;
+
+  // ---------- toca-discos ----------
+  const stereoG = new THREE.Group(); stereoG.position.set(3.45, 0, 0.05); room.add(stereoG);
+  blob(3.45, 0.05, 1.0, 0.9);
+  box(0.58, 0.34, 0.5, '#7a5338', 0, 0.27, 0, stereoG);
+  for (const [x, z] of [[-0.24, -0.2], [0.24, -0.2], [-0.24, 0.2], [0.24, 0.2]]) cyl(0.022, 0.016, 0.12, '#5f402b', x, 0.06, z, stereoG, 8);
+  box(0.62, 0.03, 0.54, '#8f6844', 0, 0.455, 0, stereoG);
+  rbox(0.5, 0.07, 0.42, 0.02, '#2f2a26', 0, 0.51, 0, stereoG);
+  const rec = new THREE.Group(); rec.position.set(-0.04, 0.55, 0); stereoG.add(rec);
+  cyl(0.17, 0.17, 0.014, '#161616', 0, 0, 0, rec, 40).castShadow = false;
+  for (const r of [0.07, 0.1, 0.13]) add(new THREE.TorusGeometry(r, 0.0018, 4, 40), mat('#2c2c2c'), 0, 0.009, 0, rec).rotation.x = Math.PI / 2;
+  cyl(0.05, 0.05, 0.018, '#c9483a', 0, 0.002, 0, rec, 24).castShadow = false;
+  const arm = new THREE.Group(); arm.position.set(0.19, 0.57, -0.14); arm.rotation.y = 0.5; stereoG.add(arm);
+  cyl(0.006, 0.006, 0.22, '#d9c7a8', 0, 0, 0.1, arm, 6).rotation.x = Math.PI / 2;
+  box(0.03, 0.012, 0.045, '#d9c7a8', 0, -0.004, 0.21, arm);
+  const noteTex = (ch) => canvasTex(64, 64, (g) => {
+    g.font = 'bold 54px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 7; g.lineJoin = 'round'; g.strokeStyle = '#3b2c22'; g.strokeText(ch, 32, 34);
+    g.fillStyle = '#fff6e4'; g.fillText(ch, 32, 34);
+  });
+  const notes = ['♪', '♫', '♪'].map((ch) => {
+    const n = new THREE.Sprite(new THREE.SpriteMaterial({ map: noteTex(ch), transparent: true, opacity: 0, depthWrite: false }));
+    n.renderOrder = 6; room.add(n); return n;
+  });
+
+  // ---------- petiscos (peixinhos) ----------
+  const treatG = new THREE.Group(); treatG.position.set(2.85, 0, 1.15); room.add(treatG);
+  const fishes = [[0, 0, 0.3], [0.14, 0.09, -0.4], [-0.03, 0.17, 0.9]].map(([x, z, ry]) => {
+    const f = new THREE.Group(); f.position.set(x, 0.016, z); f.rotation.y = ry;
+    const m = mat('#e2a35a', { roughness: 0.7 });
+    add(new THREE.SphereGeometry(1, 14, 10), m, 0, 0, 0, f).scale.set(0.075, 0.016, 0.04);
+    const tail = add(new THREE.ConeGeometry(0.035, 0.06, 3), m, -0.09, 0, 0, f); tail.rotation.set(0, 0, Math.PI / 2); tail.scale.set(1, 1, 0.3);
+    ball(0.006, '#3b2c22', 0.05, 0.014, 0.02, f).castShadow = false;
+    treatG.add(f); return f;
+  });
+  treatG.visible = false;
+
+  // ---------- ponteiro de laser ----------
+  const dotTex = canvasTex(64, 64, (g) => {
+    const rg = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.18, 'rgba(255,60,50,1)'); rg.addColorStop(0.5, 'rgba(255,30,30,0.35)'); rg.addColorStop(1, 'rgba(255,0,0,0)');
+    g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  });
+  const laser = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), new THREE.MeshBasicMaterial({
+    map: dotTex, transparent: true, depthWrite: false, toneMapped: false, color: new THREE.Color(2.2, 1.2, 1.2),
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+    blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+  }));
+  laser.rotation.x = -Math.PI / 2; laser.renderOrder = 4; laser.visible = false; room.add(laser);
+
+  // ---------- passarinho (fica do lado de fora da janela) ----------
+  box(3.5, 0.05, 0.42, '#d8cfc0', WX, 1.255, -3.31);
+  const birdG = new THREE.Group(); birdG.visible = false; birdG.scale.setScalar(1.35); room.add(birdG);
+  const bBlue = mat('#5b8fc7', { roughness: 0.8 }), bWing = mat('#3f6fa8', { roughness: 0.8 }), bBelly = mat('#f3ede1', { roughness: 0.9 }), bOrange = mat('#f0a03a', { roughness: 0.7 });
+  add(new THREE.SphereGeometry(1, 16, 12), bBlue, 0, 0.075, 0, birdG).scale.set(0.1, 0.065, 0.065);
+  add(new THREE.SphereGeometry(1, 14, 10), bBelly, 0.012, 0.05, 0, birdG).scale.set(0.08, 0.04, 0.05);
+  const bHead = new THREE.Group(); bHead.position.set(0.085, 0.115, 0); birdG.add(bHead);
+  add(new THREE.SphereGeometry(0.05, 14, 10), bBlue, 0, 0, 0, bHead);
+  add(new THREE.ConeGeometry(0.015, 0.045, 6), bOrange, 0.058, -0.004, 0, bHead).rotation.z = -Math.PI / 2;
+  for (const sz of [-1, 1]) add(new THREE.SphereGeometry(0.008, 8, 6), mat('#1c1a17'), 0.03, 0.012, sz * 0.036, bHead);
+  const bTail = add(new THREE.BoxGeometry(0.12, 0.012, 0.05), bWing, -0.14, 0.085, 0, birdG); bTail.rotation.z = 0.25;
+  const wings = [-1, 1].map((sz) => {
+    const w = new THREE.Group(); w.position.set(0.0, 0.1, sz * 0.05); birdG.add(w);
+    add(new THREE.SphereGeometry(1, 12, 8), bWing, -0.03, 0, sz * 0.04, w).scale.set(0.075, 0.012, 0.045);
+    return w;
+  });
+  for (const sz of [-1, 1]) cyl(0.004, 0.004, 0.045, '#8a6a4a', 0, 0.022, sz * 0.015, birdG, 4);
+
+  // atualiza brinquedos e objetos conforme o que está acontecendo
+  const _c = (x) => Math.max(0, Math.min(1, x));
+  function setFx(fx, t, dt, env) {
+    // laser
+    laser.visible = !!fx.laser;
+    if (fx.laser) laser.position.set(fx.laser.x, 0.048, fx.laser.z);
+    // petiscos
+    treatG.visible = fx.treats != null && fx.treats > 0.001;
+    if (treatG.visible) fishes.forEach((f, i) => { f.scale.setScalar(Math.max(0.001, _c(fx.treats - i))); f.position.y = 0.016 + (1 - _c(fx.drop == null ? 1 : fx.drop)) * 0.6; });
+    // brinquedo de pena
+    pend.rotation.z = (fx.pend || 0) + 0.035 * Math.sin(t * 1.1);
+    // caixa balançando
+    boxG.rotation.z = (fx.box || 0) * 0.025 * Math.sin(t * 15);
+    boxG.rotation.x = (fx.box || 0) * 0.02 * Math.sin(t * 12 + 1);
+    // toca-discos
+    const m = env.music;
+    rec.rotation.y -= dt * 3.4 * m;
+    arm.rotation.y = 0.5 - 0.35 * m;
+    notes.forEach((n, i) => {
+      const u = (t * 0.32 + i / 3) % 1;
+      n.position.set(3.35 - u * 0.3 + 0.08 * Math.sin(u * 8 + i), 0.75 + u * 0.9, 0.05 + 0.1 * Math.sin(i * 2 + u * 5));
+      n.scale.setScalar(0.17);
+      n.material.opacity = m * Math.sin(u * Math.PI);
+    });
+    // água: enche e ondula quando ela bebe
+    water.position.y = 0.092 + 0.011 * (fx.refill == null ? 1 : _c(fx.refill));
+    // passarinho
+    const b = fx.bird;
+    birdG.visible = !!b;
+    if (b) {
+      birdG.position.set(b.x, b.y, b.z); birdG.rotation.y = b.face;
+      const open = b.flying ? b.wing * 0.9 : 1.35;
+      wings[0].rotation.x = -open; wings[1].rotation.x = open;
+      bHead.rotation.z = -0.75 * b.peck;
+    }
+  }
+
   function setClock(h, m, s) {
     hHand.rotation.z = -((h % 12) + m / 60) * Math.PI / 6;
     mHand.rotation.z = -(m + s / 60) * Math.PI / 30;
@@ -396,9 +533,8 @@ export function createRoom(scene, skyTexture) {
     fairyMat.emissiveIntensity = fairy * (1.6 + 0.25 * Math.sin(t * 1.3));
     fairyLight.intensity = 5 * fairy;
     flame.visible = lamp > 0.05;
-    dangle.position.x = 2.68 + Math.sin(t * 1.1) * 0.02;
   }
 
   const setFood = (full) => { kibble.visible = full; };
-  return { yarn, setClock, setLights, setFood };
+  return { yarn, setClock, setLights, setFood, setFx };
 }
