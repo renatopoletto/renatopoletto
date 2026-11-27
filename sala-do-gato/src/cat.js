@@ -145,7 +145,7 @@ export function createCat() {
   const sc = document.createElement('canvas'); sc.width = sc.height = 128;
   const sg = sc.getContext('2d');
   const rg = sg.createRadialGradient(64, 64, 6, 64, 64, 62);
-  rg.addColorStop(0, 'rgba(30,18,10,0.5)'); rg.addColorStop(1, 'rgba(30,18,10,0)');
+  rg.addColorStop(0, 'rgba(30,18,10,0.7)'); rg.addColorStop(1, 'rgba(30,18,10,0)');
   sg.fillStyle = rg; sg.fillRect(0, 0, 128, 128);
   const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sc), transparent: true, depthWrite: false }));
@@ -172,6 +172,11 @@ export function createCat() {
   const miau = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(mc), transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
   miau.renderOrder = 6; zzz.push(miau);
 
+  // esferas do corpo: usadas para apoiar a gata exatamente na superfície
+  const spheres = [];
+  inner.traverse((m) => { if (m.isMesh && m.geometry.type === 'SphereGeometry') spheres.push(m); });
+  let lift = 0, rugLift = 0;
+
   const cur = { ...BASE };
   let first = true, heading = 0, sleepAmt = 0;
   const headWorld = new THREE.Vector3();
@@ -185,6 +190,7 @@ export function createCat() {
     let dh = st.heading - heading;
     dh = Math.atan2(Math.sin(dh), Math.cos(dh));
     heading += dh * (first ? 1 : 1 - Math.exp(-dt * 10));
+    const first0 = first;
     first = false;
     root.position.set(st.x, st.y, st.z);
     root.rotation.y = heading;
@@ -241,10 +247,28 @@ export function createCat() {
       tail[i].rotation.y = p.tailSide + sway * (i / 4);
     }
 
+    // apoio no chão: mede o ponto mais baixo do corpo e ajusta a altura
+    const onRug = st.groundY < 0.15 && st.x > -1.97 && st.x < 2.27 && st.z > -1.17 && st.z < 1.87;
+    rugLift += ((onRug ? 0.032 : 0) - rugLift) * (first0 ? 1 : 1 - Math.exp(-dt * 25));
+    root.position.y = st.y + (st.groundY < 0.15 ? rugLift : 0);
+    if (st.pose !== 'jump') {
+      inner.position.y = 0;
+      root.updateMatrixWorld(true);
+      let low = 1e9;
+      for (const m of spheres) {
+        const e = m.matrixWorld.elements;
+        const v = e[13] - Math.hypot(e[1], e[5], e[9]);
+        if (v < low) low = v;
+      }
+      const want = root.position.y - low;
+      lift += (want - lift) * (first0 ? 1 : 1 - Math.exp(-dt * 20));
+    }
+    inner.position.y = lift;
+
     // sombra de contato
     const h = Math.max(0, st.y - st.groundY);
     const sz = (st.pose === 'sleep' || st.pose === 'loaf' ? 1.25 : 1.1) * (1 - Math.min(0.5, h));
-    shadow.position.set(st.x, st.groundY + 0.012, st.z);
+    shadow.position.set(st.x, st.groundY + (st.groundY < 0.15 ? rugLift : 0) + 0.008, st.z);
     shadow.scale.set(sz, sz, 1);
     shadow.material.opacity = 0.9 * (1 - Math.min(0.7, h * 1.5));
 
