@@ -5,6 +5,12 @@ import { createCat } from './cat.js';
 import { createRoom } from './room.js';
 import { createSky, skyColors } from './sky.js';
 import { load, feed } from './store.js';
+import { createAtmos } from './atmos.js';
+import { EffectComposer } from '../vendor/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from '../vendor/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from '../vendor/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from '../vendor/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from '../vendor/jsm/postprocessing/ShaderPass.js';
 
 // ----- relógio (parâmetros de teste: ?hora=21:30 e ?vel=600) -----
 const params = new URLSearchParams(location.search);
@@ -55,7 +61,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = params.get('tm') === 'aces' ? THREE.ACESFilmicToneMapping : THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.setClearColor(0x000000, 0);
 
@@ -69,6 +75,7 @@ const sky = createSky();
 const room = createRoom(scene, sky.texture);
 const cat = createCat();
 scene.add(cat.root, cat.shadow, ...cat.zzz);
+const atmos = createAtmos(scene);
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1);
 const fill = new THREE.DirectionalLight(0xffffff, 0.5);
@@ -77,13 +84,45 @@ const sun = new THREE.DirectionalLight(0xffffff, 0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02; sun.shadow.radius = 3;
-Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 40 });
+Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 1, far: 40 });
 sun.target.position.set(0, 1, 0);
 scene.add(hemi, fill, sun, sun.target);
+
+// ----- pós-processamento: brilho nas luzes + acabamento de cor -----
+// ?q=max força a qualidade máxima; ?q=min desliga os efeitos.
+const qParam = params.get('q');
+let fx = qParam !== 'min';
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, {
+  type: THREE.HalfFloatType, samples: 4, stencilBuffer: true, depthBuffer: true,
+}));
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.45, 1.35);
+// o brilho soma só cor: a transparência da cena (fundo da página) fica intacta
+Object.assign(bloom.blendMaterial, {
+  blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+  blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+  blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+});
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+composer.addPass(new ShaderPass({
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb = mix(vec3(l), c.rgb, 1.08);                     // um pouco mais de cor
+      c.rgb = clamp((c.rgb - 0.5) * 1.05 + 0.5, 0.0, 1.0);  // contraste suave
+      gl_FragColor = c;
+    }`,
+}));
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(w, h);
   camera.aspect = w / h;
   camDist = 14.2 * Math.max(1, 1.62 / camera.aspect);
   camera.updateProjectionMatrix();
@@ -156,6 +195,17 @@ function applyEnvironment(utc, brt, tSec) {
   return s;
 }
 
+// Qualidade automática: se o aparelho estiver lento, desliga os efeitos e reduz a resolução.
+let adaptN = 0, adaptT0 = 0;
+function adapt(now) {
+  if (qParam === 'max' || adaptN < 0) return;
+  if (adaptN === 0) { adaptT0 = now; adaptN = 1; return; }
+  if (++adaptN < 120) return;
+  const avg = (now - adaptT0) / adaptN;
+  adaptN = -1;
+  if (avg > 40) { fx = false; renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25)); resize(); }
+}
+
 let prev = performance.now();
 function frame() {
   const perfNow = performance.now();
@@ -204,7 +254,10 @@ function frame() {
     camera.lookAt(TARGET);
   }
 
-  renderer.render(scene, camera);
+  atmos.update(s.dir, sun.color, Math.min(1, sun.intensity / 4.2) * (s.isDay ? 1 : 0.3), dt, tSec);
+
+  if (fx) composer.render(); else renderer.render(scene, camera);
+  adapt(perfNow);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

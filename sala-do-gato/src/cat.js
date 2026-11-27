@@ -5,8 +5,9 @@ const ORANGE = '#e8923a', DARK = '#bf651c', CREAM = '#fcefdc', PINK = '#f0a3a0';
 
 function furTexture(kind) {
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = c.height = 512;
   const g = c.getContext('2d');
+  g.scale(2, 2);
   g.fillStyle = ORANGE; g.fillRect(0, 0, 256, 256);
   if (kind === 'body') {
     // barriga clara (u ~ 0.25) e listras no dorso (u ~ 0.75)
@@ -35,8 +36,19 @@ function furTexture(kind) {
     g.fillStyle = DARK;
     for (let i = 0; i < 6; i++) g.fillRect(0, 20 + i * 42, 256, 14);
   }
+  // fios de pelo: traços finos claros e escuros por cima de tudo
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.lineCap = 'round';
+  let q = kind.length * 977 + 13;
+  const rn = () => { q = (q * 16807) % 2147483647; return q / 2147483647; };
+  for (let i = 0; i < 7000; i++) {
+    const x = rn() * 512, y = rn() * 512, ang = rn() * 6.283, len = 5 + rn() * 7;
+    g.strokeStyle = rn() < 0.5 ? 'rgba(255,236,200,0.13)' : 'rgba(140,64,16,0.13)';
+    g.lineWidth = 0.9 + rn() * 0.8;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); g.stroke();
+  }
   const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   return t;
 }
 
@@ -64,7 +76,7 @@ export function createCat() {
   inner.scale.setScalar(1.22);
   root.add(inner);
 
-  const std = (opts) => new THREE.MeshStandardMaterial({ roughness: 0.92, ...opts });
+  const std = (opts) => new THREE.MeshPhysicalMaterial({ roughness: 0.95, sheen: 1, sheenRoughness: 0.45, sheenColor: '#ffddb0', ...opts });
   const mOrange = std({ color: ORANGE });
   const mCream = std({ color: CREAM });
   const mPink = std({ color: PINK });

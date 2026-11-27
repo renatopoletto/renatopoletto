@@ -8,10 +8,11 @@ function rng(seed) {
 
 const mats = new Map();
 function mat(color, opts = {}) {
-  const key = color + JSON.stringify(opts);
-  if (!mats.has(key)) mats.set(key, new THREE.MeshStandardMaterial({ color, roughness: 0.88, ...opts }));
+  const key = color + JSON.stringify(opts, (k, v) => (v && v.isTexture ? v.uuid : v));
+  if (!mats.has(key)) mats.set(key, new (opts.sheen ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial)({ color, roughness: 0.88, ...opts }));
   return mats.get(key);
 }
+const fab = (c, sheen = '#ffffff') => mat(c, { sheen: 1, sheenRoughness: 0.5, sheenColor: sheen, roughness: 1 });
 function canvasTex(w, h, paint, repeat) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   paint(c.getContext('2d'), w, h);
@@ -81,12 +82,19 @@ export function createRoom(scene, skyTexture) {
       g.fillStyle = 'rgba(70,38,16,0.55)'; g.fillRect(0, i * ph, w, 2);
     }
   }, [2.2, 1.7]);
-  const floor = box(8.4, 0.3, 6.4, mat('#ffffff', { map: floorTex }), -0.1, -0.15, 0.1);
+  const floor = box(8.4, 0.3, 6.4, mat('#ffffff', { map: floorTex, roughness: 0.5 }), -0.1, -0.15, 0.1);
   floor.castShadow = false;
   box(8.5, 0.12, 6.5, '#8a5a36', -0.1, -0.36, 0.1).castShadow = false;
 
   // ---------- paredes ----------
-  const WALL = '#ecdcc2', WAINS = '#86a08c', TRIM = '#f7f0e2';
+  const WALL0 = '#ecdcc2', WAINS = '#86a08c', TRIM = '#f7f0e2';
+  const plaster = canvasTex(512, 512, (g, w, h) => {
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
+    const rr = rng(9);
+    for (let i = 0; i < 90; i++) { const x = rr() * w, y = rr() * h, r = 30 + rr() * 80, k = rr() < 0.5 ? 255 : 120; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${k},${k - 10},${k - 30},0.022)`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+    for (let i = 0; i < 5000; i++) { g.fillStyle = rr() < 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(120,100,70,0.06)'; g.fillRect(rr() * w, rr() * h, 1 + rr() * 2, 1 + rr() * 2); }
+  }, [2, 2]);
+  const WALL = mat(WALL0, { map: plaster, roughness: 0.97 });
   box(0.2, 4.2, 6.4, WALL, -4.1, 2.1, 0.1);                 // esquerda
   box(2.3, 4.2, 0.2, WALL, -3.05, 2.1, -3.1);               // fundo, à esquerda da janela
   box(2.7, 4.2, 0.2, WALL, 2.65, 2.1, -3.1);                // fundo, à direita
@@ -168,7 +176,7 @@ export function createRoom(scene, skyTexture) {
   for (const s of [-1, 1]) {
     ball(0.06, '#6b4a33', WX + s * 2.15, 3.62, -2.86);
     for (let i = 0; i < 6; i++) {
-      const c = cyl(0.075, 0.085, 2.5, i % 2 ? CURT : '#ecdcc0', WX + s * (1.52 + i * 0.105), 2.36, -2.86 + (i % 2) * 0.03, room, 10);
+      const c = cyl(0.075, 0.085, 2.5, fab(i % 2 ? CURT : '#ecdcc0'), WX + s * (1.52 + i * 0.105), 2.36, -2.86 + (i % 2) * 0.03, room, 10);
       c.scale.z = 0.8;
     }
   }
@@ -185,7 +193,7 @@ export function createRoom(scene, skyTexture) {
       g.fillStyle = '#f1e2c8'; g.beginPath(); g.arc(x, y, 3.5, 0, 6.3); g.fill();
     }
   });
-  const rug = rbox(4.3, 3.1, 0.03, 0.012, mat('#ffffff', { map: rugTex, roughness: 1 }), 0.15, 0.016, 0.35);
+  const rug = rbox(4.3, 3.1, 0.03, 0.012, mat('#ffffff', { map: rugTex, roughness: 1, sheen: 1, sheenRoughness: 0.6, sheenColor: '#ffffff' }), 0.15, 0.016, 0.35);
   rug.rotation.x = -Math.PI / 2; rug.castShadow = false;
   {
     const uv = rug.geometry.attributes.uv, pos = rug.geometry.attributes.position;
@@ -193,20 +201,20 @@ export function createRoom(scene, skyTexture) {
   }
 
   // ---------- sofá ----------
-  const SOFA = '#3f7276', SOFA2 = '#4a8286';
+  const SOFA = fab('#3f7276', '#9fe0dc'), SOFA2 = fab('#4a8286', '#9fe0dc');
   blob(-3.2, -0.35, 2.2, 3.6);
   rbox(1.4, 0.34, 2.9, 0.07, SOFA, -3.25, 0.3, -0.35);
   rbox(0.4, 0.95, 2.9, 0.1, SOFA, -3.75, 0.72, -0.35);
   for (const z of [-1.72, 1.02]) rbox(1.4, 0.72, 0.3, 0.1, SOFA, -3.25, 0.5, z);
   for (const z of [-1.03, 0.33]) rbox(1.02, 0.2, 1.3, 0.08, SOFA2, -3.07, 0.5, z);
   for (const [x, z] of [[-3.85, -1.7], [-2.65, -1.7], [-3.85, 1.0], [-2.65, 1.0]]) cyl(0.04, 0.03, 0.14, '#6b4a33', x, 0.07, z);
-  const cushion = (x, y, z, c, ry, rz) => { const m = rbox(0.5, 0.5, 0.16, 0.07, c, x, y, z); m.rotation.set(0, ry, rz); return m; };
+  const cushion = (x, y, z, c, ry, rz) => { const m = rbox(0.5, 0.5, 0.16, 0.07, fab(c), x, y, z); m.rotation.set(0, ry, rz); return m; };
   cushion(-3.48, 0.86, -1.3, '#d99a3d', Math.PI / 2 - 0.15, 0.12);
   cushion(-3.45, 0.84, 0.62, '#c96f4a', Math.PI / 2 + 0.2, -0.1);
   cushion(-3.38, 0.82, 0.2, '#f1e2c8', Math.PI / 2 + 0.05, 0.2).scale.setScalar(0.85);
   // manta no braço
-  rbox(1.0, 0.06, 0.5, 0.025, '#e9c9a0', -3.2, 0.885, 1.02);
-  rbox(0.5, 0.42, 0.05, 0.02, '#e9c9a0', -2.95, 0.68, 1.19);
+  rbox(1.0, 0.06, 0.5, 0.025, fab('#e9c9a0'), -3.2, 0.885, 1.02);
+  rbox(0.5, 0.42, 0.05, 0.02, fab('#e9c9a0'), -2.95, 0.68, 1.19);
 
   // ---------- abajur de chão ----------
   const lampGlow = new THREE.MeshStandardMaterial({ color: '#f6dfb4', emissive: '#ffb45e', emissiveIntensity: 0, roughness: 0.9, side: THREE.DoubleSide });
@@ -293,7 +301,7 @@ export function createRoom(scene, skyTexture) {
 
   // ---------- caminha ----------
   blob(-1.6, 2.15, 1.6, 1.6);
-  add(new THREE.TorusGeometry(0.47, 0.13, 12, 28), mat('#c96f4a'), -1.6, 0.13, 2.15).rotation.x = Math.PI / 2;
+  add(new THREE.TorusGeometry(0.47, 0.13, 12, 28), fab('#c96f4a', '#ffd0b0'), -1.6, 0.13, 2.15).rotation.x = Math.PI / 2;
   cyl(0.47, 0.47, 0.07, '#f1e2c8', -1.6, 0.045, 2.15);
 
   // ---------- planta grande ----------

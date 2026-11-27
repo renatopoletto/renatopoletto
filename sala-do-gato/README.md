@@ -18,6 +18,7 @@ Depois abra `http://localhost:8000`.
 - `?hora=21:30` começa naquele horário de Brasília
 - `?vel=600` acelera o tempo (600 = 10 minutos por segundo)
 - `?foco=1` aproxima a câmera da gata
+- `?q=max` força a qualidade gráfica máxima; `?q=min` desliga os efeitos (por padrão o site reduz a qualidade sozinho em aparelhos lentos)
 
 ## Como funciona
 
