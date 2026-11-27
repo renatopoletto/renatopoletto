@@ -35,9 +35,6 @@
   #data { font-size: 13px; opacity: 0.75; margin-top: 5px; }
   #linha { margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--tinta) 18%, transparent); font-size: 15px; }
   #linha b { font-weight: 600; }
-  #comida { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; font-size: 14px; }
-  #pote { flex: 1 1 auto; }
-  body.fome #pote { font-weight: 600; }
   button {
     font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
     color: var(--tinta); background: transparent;
@@ -45,12 +42,17 @@
     border-radius: 999px; padding: 7px 14px;
   }
   button:focus-visible { outline: 2px solid var(--tinta); outline-offset: 2px; }
-  #alimentar { background: #c9583f; border-color: #c9583f; color: #fff7ea; }
-  #aviso { font-size: 11px; opacity: 0.65; margin-top: 8px; }
+  #alimentar {
+    position: fixed; right: max(20px, env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    background: var(--papel); border-color: transparent; font-weight: 500; font-size: 13px; opacity: 0.8;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  #alimentar:hover, #alimentar:active { opacity: 1; }
   #som { position: fixed; top: 16px; right: 20px; background: var(--papel); border-color: transparent; font-weight: 500; font-size: 13px; }
   @media (max-width: 600px) {
     header { top: 14px; left: 16px; font-size: 17px; }
-    #painel { left: 16px; right: 16px; bottom: 16px; }
+    #painel { left: 16px; right: 16px; bottom: 64px; }
+    #alimentar { right: 16px; bottom: 16px; }
     #hora { font-size: 28px; }
   }
 </style>
@@ -59,13 +61,12 @@
 <canvas id="cena" aria-label="Sala ilustrada com uma gata laranja"></canvas>
 <header>A sala da Pipoca</header>
 <button id="som" type="button" aria-pressed="false">Som desligado</button>
+<button id="alimentar" type="button">alimentar o gato</button>
 <section id="painel" aria-live="polite">
   <div id="local">Horário de Brasília</div>
   <div id="hora">--:--:--</div>
   <div id="data"></div>
   <div id="linha"><b>Pipoca</b> está <span id="status">…</span></div>
-  <div id="comida"><span id="pote"></span><button id="alimentar" type="button">Dar comida</button></div>
-  <div id="aviso">Demonstração: nenhum pagamento é cobrado.</div>
 </section>
 <script type="module" src="./src/main.js"></script>
 </body>

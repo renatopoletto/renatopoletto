@@ -27,10 +27,8 @@ const pad = (n) => String(n).padStart(2, '0');
 const testMode = !!hora || speed !== 1;
 const food = load(baseUtc, !testMode);
 if (params.get('fome') === '0') food.fedUntil = baseUtc + 6 * 3600e3;
-const elPote = document.getElementById('pote');
 const elAlimentar = document.getElementById('alimentar');
 elAlimentar.addEventListener('click', () => { feed(food, nowUtc(), !testMode); lastSecond = -1; });
-const dur = (ms) => { if (ms < 60e3) return `${Math.max(0, Math.ceil(ms / 1000))} s`; const m = Math.floor(ms / 60e3); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad(m % 60)} min`; };
 
 // ----- som (miado sintetizado; só toca depois de ligar no botão) -----
 let audio = null, lastMeow = 0;
@@ -192,9 +190,6 @@ function frame() {
     elData.textContent = fmtData.format(d);
     const txt = statusText(st, s.isDay);
     if (txt !== lastStatus) { lastStatus = txt; elStatus.textContent = txt; }
-    elPote.textContent = isHungry ? `Pote vazio há ${dur(utc - food.fedUntil)}` : `Pote cheio por mais ${dur(food.fedUntil - utc)}`;
-    elAlimentar.textContent = isHungry ? 'Dar comida' : 'Dar mais comida';
-    document.body.classList.toggle('fome', isHungry);
   }
 
   mouse.sx += (mouse.x - mouse.sx) * 0.05; mouse.sy += (mouse.y - mouse.sy) * 0.05;
